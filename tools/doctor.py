@@ -95,13 +95,96 @@ async def check_discord() -> None:
     except ImportError:
         line(BAD, "discord.py no instalado -> pip install -r requirements.txt")
         return
-    line(OK, f"Token cargado, vigilando al usuario {cfg.discord_streamer_id}")
-    line(WARN, "Verifica a mano: PRESENCE INTENT y SERVER MEMBERS INTENT activados "
-               "en dev portal > Bot")
     if not cfg.game_map_file.exists():
         line(WARN, f"No existe {cfg.game_map_file}; se usara solo la busqueda automatica")
     else:
         line(OK, "config/game_map.json presente")
+
+    # Conectamos de verdad: es la unica forma de saber si los intents
+    # privilegiados estan habilitados, si el bot comparte servidor con el
+    # streamer y si su presencia se ve. Discord no lo expone por API.
+    await _discord_en_vivo()
+
+
+async def _discord_en_vivo() -> None:
+    import discord
+
+    intents = discord.Intents.none()
+    intents.guilds = True
+    intents.members = True
+    intents.presences = True
+
+    client = discord.Client(intents=intents)
+    listo = asyncio.Event()
+
+    @client.event
+    async def on_ready() -> None:  # noqa: ANN202
+        try:
+            line(OK, f"Conectado como {client.user} (intents privilegiados habilitados)")
+
+            # fetch_user funciona aunque no compartan servidor: confirma que el
+            # ID existe y de quien es.
+            try:
+                usuario = await client.fetch_user(cfg.discord_streamer_id)
+                line(OK, f"El ID corresponde a @{usuario.name}")
+            except discord.NotFound:
+                line(BAD, f"No existe ningun usuario de Discord con el ID "
+                          f"{cfg.discord_streamer_id}")
+                return
+
+            if not client.guilds:
+                line(BAD, "El bot no esta en ningun servidor. Invitalo con:\n"
+                          f"       https://discord.com/oauth2/authorize"
+                          f"?client_id={client.user.id}&permissions=0&scope=bot")
+                return
+            line(OK, f"En {len(client.guilds)} servidor(es): "
+                     f"{', '.join(g.name for g in client.guilds)}")
+
+            miembro = None
+            for guild in client.guilds:
+                miembro = guild.get_member(cfg.discord_streamer_id)
+                if miembro is not None:
+                    break
+
+            if miembro is None:
+                line(BAD, f"@{usuario.name} no aparece en ningun servidor del bot. "
+                          "Tiene que estar en el mismo servidor para que se lea su "
+                          "presencia.")
+                return
+
+            line(OK, f"Comparte el servidor '{miembro.guild.name}'")
+
+            from src.discord_presence.bot import playing_name
+
+            jugando = playing_name(miembro)
+            if jugando:
+                line(OK, f"Ahora mismo la veo jugando a: {jugando}")
+            elif str(miembro.status) == "offline":
+                line(WARN, "Aparece desconectada de Discord: sin presencia que leer. "
+                           "Volve a probar cuando este online.")
+            else:
+                line(OK, "Presencia visible, sin juego abierto en este momento")
+        finally:
+            listo.set()
+            await client.close()
+
+    try:
+        await asyncio.wait_for(client.start(cfg.discord_token), timeout=30)
+    except discord.PrivilegedIntentsRequired:
+        line(BAD, "Faltan los intents privilegiados. En "
+                  "discord.com/developers > tu app > Bot > "
+                  "Privileged Gateway Intents, activa PRESENCE INTENT y "
+                  "SERVER MEMBERS INTENT.")
+    except discord.LoginFailure:
+        line(BAD, "DISCORD_BOT_TOKEN invalido. Sacalo de dev portal > Bot > Reset Token.")
+    except asyncio.TimeoutError:
+        if not listo.is_set():
+            line(BAD, "Discord no respondio en 30 s")
+    except Exception as exc:  # noqa: BLE001
+        line(BAD, f"Fallo conectando a Discord: {exc}")
+    finally:
+        if not client.is_closed():
+            await client.close()
 
 
 async def check_agent() -> None:

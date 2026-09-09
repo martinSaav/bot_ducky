@@ -212,8 +212,9 @@ en cada mensaje es el de la cuenta de Twitch**, no este.
 ### 4. Discord (auto-categorizador, fuente de respaldo)
 
 1. Creá una aplicación en <https://discord.com/developers/applications> → **Bot**
-2. En **Privileged Gateway Intents** activá **PRESENCE INTENT** y **SERVER MEMBERS INTENT**.
-   Sin esto Discord no manda las actualizaciones de presencia y el bot no ve nada.
+2. En la pestaña **Bot** → **Privileged Gateway Intents**, activá **PRESENCE INTENT**
+   y **SERVER MEMBERS INTENT**. Sin esto Discord rechaza la conexión del bot.
+   `tools/doctor.py` lo verifica conectándose de verdad, no hace falta revisarlo a ojo.
 3. Invitá el bot a un servidor privado donde estén solo él y el streamer.
    No necesita ningún permiso: solo estar en el servidor.
 4. Con el Modo Desarrollador activado, click derecho sobre el streamer →
