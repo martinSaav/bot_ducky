@@ -81,6 +81,29 @@ falta. `[X]` bloquea el arranque, `[!]` solo apaga esa función.
 
 ---
 
+## Quién es dueño de qué
+
+Todo se crea y se administra desde **tu** cuenta. El streamer no necesita portal
+de desarrollo de Twitch ni de Discord.
+
+| Pieza | Se crea en | Qué necesita del streamer |
+|---|---|---|
+| Aplicación de Twitch (dev.twitch.tv) | tu cuenta | que autorice una vez por OAuth |
+| Bot de Discord (portal de desarrolladores) | tu cuenta | su ID de usuario, y compartir un servidor con el bot |
+| Cuenta de chat del bot (BotDucky) | cuenta nueva, tuya | nada |
+| Riot API / HenrikDev | tu cuenta | su Riot ID (`Nombre#TAG`), que es público |
+| Google Cloud + Drive | tu cuenta | nada |
+| Agente de escritorio | tu máquina, compilado | que lo deje corriendo en su PC |
+
+El streamer solo hace tres cosas, todas de una sola vez: **autorizar la app de
+Twitch** con su cuenta, **entrar al servidor de Discord** y **dejar el agente
+instalado**. Nada más pasa por su lado.
+
+Un ID de usuario de Discord o un Riot ID son datos públicos: cualquiera que la
+tenga agregada los puede ver. Tenerlos no da ningún acceso a su cuenta.
+
+---
+
 ## Configuración
 
 ### 1. Aplicación de Twitch
