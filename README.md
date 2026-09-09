@@ -33,26 +33,51 @@ y avisa por log lo que quedó apagado.
 
 ## Instalación
 
+Creá el entorno virtual:
+
 ```bash
 python -m venv .venv
 ```
 
+Activalo. Es lo único que cambia según dónde estés:
+
 ```bash
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+source .venv/Scripts/activate        # Windows, Git Bash
+source .venv/bin/activate            # Linux / macOS
+```
+
+```powershell
+.venv/Scripts/Activate.ps1           # Windows, PowerShell
+```
+
+> **En PowerShell la primera vez va a fallar** con *"running scripts is disabled
+> on this system"*: Windows bloquea los scripts por defecto. Se habilita una sola
+> vez y sin permisos de administrador con
+> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+> Git Bash y Linux no tienen esta restricción.
+
+Con el entorno activo, el resto es igual en todos lados:
+
+```bash
+pip install -r requirements.txt
 ```
 
 ```bash
-copy .env.example .env
+cp .env.example .env
 ```
 
 Después de completar el `.env`, revisá que todo esté bien antes de arrancar:
 
 ```bash
-.venv\Scripts\python.exe tools/doctor.py
+python tools/doctor.py
 ```
 
 El doctor prueba cada credencial contra su API real y te dice exactamente qué
 falta. `[X]` bloquea el arranque, `[!]` solo apaga esa función.
+
+> **Si preferís no activar el entorno**, prefijá cada comando con la ruta al
+> intérprete: `.venv/Scripts/python.exe` en Windows, `.venv/bin/python` en Linux.
+> En `cmd.exe` además hay que dar vuelta las barras y usar `copy` en vez de `cp`.
 
 ---
 
@@ -73,11 +98,11 @@ Copiá Client ID y Client Secret al `.env`.
 Se autoriza **dos veces**, con dos cuentas distintas:
 
 ```bash
-.venv\Scripts\python.exe tools/auth_twitch.py broadcaster
+python tools/auth_twitch.py broadcaster
 ```
 
 ```bash
-.venv\Scripts\python.exe tools/auth_twitch.py bot
+python tools/auth_twitch.py bot
 ```
 
 El script levanta un servidor local, te abre el navegador, captura el `?code=` y
@@ -98,7 +123,33 @@ es automático**: Twitch rota el refresh token en cada uso y el bot lo persiste 
 Si vas a usar la cuenta del streamer también para el chat, dejá `TWITCH_BOT_LOGIN`
 vacío — igual hay que correr `auth_twitch.py bot` porque son scopes distintos.
 
-### 3. Discord (auto-categorizador, fuente de respaldo)
+### 3. Ponerle nombre al bot
+
+El nombre vive en cuatro lugares distintos, y solo dos son código:
+
+| Dónde | Quién lo ve | Cómo se pone |
+|---|---|---|
+| Cuenta de chat | el chat, en cada mensaje | registrar una cuenta de Twitch con ese nombre y correr `python tools/auth_twitch.py bot` con ella |
+| Nombre de la aplicación | el streamer, al autorizar | campo **Nombre** en dev.twitch.tv |
+| Mensajes del bot | el chat | `BOT_NAME` en el `.env` |
+| Logs | vos | `BOT_NAME` en el `.env` |
+
+Con `BOT_NAME=BotDucky` los mensajes salen así:
+
+```
+[BotDucky] Categoria actualizada a: VALORANT
+[BotDucky] Comandos: !rank !partida !valorant !uptime !clip
+```
+
+Dejalo vacío y salen sin prefijo. Es solo cosmético: **el nombre que el chat ve
+en cada mensaje es el de la cuenta de Twitch**, no este.
+
+> **El cambio de categoría no se le atribuye a nadie.** Twitch no expone quién
+> modificó la información del canal, ni en la API ni en la interfaz — la
+> categoría simplemente cambia. El único rastro visible es el mensaje que el bot
+> manda al chat, y eso se apaga con `AUTOCAT_ANNOUNCE=false`.
+
+### 4. Discord (auto-categorizador, fuente de respaldo)
 
 1. Creá una aplicación en <https://discord.com/developers/applications> → **Bot**
 2. En **Privileged Gateway Intents** activá **PRESENCE INTENT** y **SERVER MEMBERS INTENT**.
@@ -130,7 +181,7 @@ Sin eso no hay presencia que leer.
 
 Probalo primero con `AUTOCAT_DRY_RUN=true`: loguea lo que haría sin tocar Twitch.
 
-### 4. Agente de escritorio (fuente principal)
+### 5. Agente de escritorio (fuente principal)
 
 El proyecto [`agent/`](agent/README.md) es un programa chico en Rust que corre en
 la PC del streamer y avisa qué juego está abierto mirando los procesos. Es más
@@ -162,7 +213,7 @@ tiene que devolver `{"ok": true, ...}`.
 El resto —compilar, configurar, agregar juegos, arranque automático— está en
 [`agent/README.md`](agent/README.md).
 
-### 5. Riot API (comandos de LoL)
+### 6. Riot API (comandos de LoL)
 
 Pedí la key en <https://developer.riotgames.com>.
 
@@ -177,7 +228,7 @@ Para LAS: `RIOT_PLATFORM=la2` y `RIOT_REGION=americas`.
 Los comandos usan `Account-V1` (Riot ID → PUUID), `League-V4` (elo) y
 `Spectator-V5` (partida en curso), con caché de 90 s / 30 s para no quemar la cuota.
 
-### 6. Valorant (HenrikDev)
+### 7. Valorant (HenrikDev)
 
 Riot no da acceso público a la API de Valorant, así que se usa el wrapper de la
 comunidad: <https://docs.henrikdev.xyz>. La key se pide en su Discord y va en
@@ -187,7 +238,7 @@ Es una API de terceros: puede cambiar sin aviso. El cliente parsea las respuesta
 de forma defensiva y prueba `v3` → `v2` para el rango y `v4` → `v3` para las
 partidas, así un cambio de versión de un lado no te deja sin comando.
 
-### 7. Google Drive (pipeline de clips)
+### 8. Google Drive (pipeline de clips)
 
 1. Creá un proyecto en <https://console.cloud.google.com> y **habilitá la Google Drive API**.
 2. **IAM y administración → Cuentas de servicio → Crear**. No hace falta darle roles.
@@ -231,25 +282,25 @@ descripción del archivo van el autor del clip, las vistas y el link original.
 Arrancar todo:
 
 ```bash
-.venv\Scripts\python.exe run.py
+python run.py
 ```
 
 Corrida manual de clips, sin esperar al horario:
 
 ```bash
-.venv\Scripts\python.exe tools/run_clips.py
+python tools/run_clips.py
 ```
 
 Ver qué clips agarraría, sin descargar ni subir nada:
 
 ```bash
-.venv\Scripts\python.exe tools/run_clips.py --listar --horas 72
+python tools/run_clips.py --listar --horas 72
 ```
 
 Diagnóstico de toda la configuración:
 
 ```bash
-.venv\Scripts\python.exe tools/doctor.py
+python tools/doctor.py
 ```
 
 Los logs van a consola y a `logs/bot.log` (rotativo, 5 archivos de 5 MB).
@@ -324,7 +375,11 @@ Después de editarlo: `!recargar` en el chat, sin reiniciar.
 
 Con `pythonw.exe` no queda una consola abierta; los logs igual van a `logs/bot.log`.
 
-**VPS (Linux, systemd)** — `/etc/systemd/system/chaarbot.service`:
+**VPS (Linux, systemd)**
+
+En Linux el intérprete del entorno queda en `.venv/bin/python` (no en
+`.venv/Scripts/`). El servicio lo llama por ruta absoluta, así que no hace falta
+activar nada. En `/etc/systemd/system/chaarbot.service`:
 
 ```ini
 [Unit]
@@ -342,8 +397,21 @@ User=chaarbot
 WantedBy=multi-user.target
 ```
 
-Si lo movés a un VPS, acordate de agregar la nueva redirect URI en dev.twitch.tv
-(o hacé la autorización local y copiá `data/tokens.json`).
+```bash
+sudo systemctl enable --now chaarbot
+journalctl -u chaarbot -f
+```
+
+Tres cosas a tener en cuenta al mudarlo a un VPS Linux:
+
+- **Redirect URI** — agregá la nueva en dev.twitch.tv, o hacé la autorización en
+  tu máquina y copiá `data/tokens.json` al servidor (es más simple).
+- **Puerto del agente** — si vas a seguir usando el agente de escritorio, abrí el
+  8787 solo hacia la tailnet: `sudo ufw allow in on tailscale0 to any port 8787`.
+  No lo expongas a internet: el agente habla HTTP plano, que dentro de Tailscale
+  está bien pero afuera no.
+- **`ffmpeg` no hace falta** — el pipeline baja los clips en un solo archivo mp4,
+  sin necesidad de recombinar pistas.
 
 ---
 

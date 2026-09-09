@@ -42,6 +42,11 @@ pierde un mensaje, el siguiente latido lo corrige solo.
 
 ## Compilar
 
+> **El agente es solo para Windows.** Detecta procesos por nombre de `.exe` y
+> pide la hora a `kernel32`, así que no compila en Linux. Es a propósito: corre
+> en la PC donde se juega. El bot, en cambio, corre igual en Windows o en un VPS
+> Linux — el agente le habla por HTTP y no le importa el sistema del otro lado.
+
 ```bash
 cargo build --release
 ```
@@ -57,7 +62,7 @@ build va sin TLS (ver más abajo).
 ## Configurar
 
 ```bash
-copy agent.example.toml agent.toml
+cp agent.example.toml agent.toml
 ```
 
 Dos cosas obligatorias:
@@ -73,13 +78,13 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 ### Probar antes de dejarlo suelto
 
 ```bash
-.\twitch-game-agent.exe --once
+./twitch-game-agent.exe --once
 ```
 
 Dice qué detecta ahora mismo y sale. Con un juego abierto tiene que nombrarlo.
 
 ```bash
-.\twitch-game-agent.exe --scan
+./twitch-game-agent.exe --scan
 ```
 
 Lista los procesos en ejecución para averiguar el ejecutable de un juego que
@@ -102,8 +107,13 @@ Riot está en 10 y la partida en 20: con los dos abiertos, gana la partida.
 ## Dejarlo corriendo solo
 
 ```powershell
-.\install-autostart.ps1
+powershell -ExecutionPolicy Bypass -File install-autostart.ps1
 ```
+
+El `-ExecutionPolicy Bypass` no es opcional: Windows bloquea los scripts de
+PowerShell por defecto y sin eso falla con *"running scripts is disabled on this
+system"*. La otra opción es click derecho sobre el `.ps1` > **"Ejecutar con
+PowerShell"**, que ya lo hace por su cuenta.
 
 Crea una tarea programada que lo arranca al iniciar sesión, sin ventana. No pide
 permisos de administrador. Antes de instalar nada valida la configuración, así no
@@ -112,7 +122,7 @@ te queda una tarea que nunca va a andar.
 Para sacarlo:
 
 ```powershell
-.\uninstall-autostart.ps1
+powershell -ExecutionPolicy Bypass -File uninstall-autostart.ps1
 ```
 
 Mientras corre aparece en el Administrador de tareas como `twitch-game-agent.exe`
