@@ -1,0 +1,14 @@
+.env
+data/
+logs/
+downloads/
+secrets/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# agente de Rust
+agent/target/
+agent/agent.toml
+agent/agent.log

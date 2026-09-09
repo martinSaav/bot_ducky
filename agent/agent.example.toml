@@ -1,0 +1,229 @@
+# Configuracion del agente. Copiar a agent.toml, al lado del .exe.
+#
+# Regla importante: SOLO se reportan los juegos declarados aca abajo.
+# Cualquier otro programa que este abierto se descarta en el acto y nunca
+# sale de la maquina.
+
+# Endpoint del bot. Con Tailscale es la IP 100.x que te da `tailscale ip -4`
+# en la PC donde corre el bot.
+endpoint = "http://100.0.0.0:8787/game"
+
+# Secreto compartido. Tiene que ser identico a AGENT_TOKEN en el .env del bot.
+# Genera uno con:  python -c "import secrets; print(secrets.token_urlsafe(32))"
+token = "CAMBIAME"
+
+# Cada cuanto se miran los procesos.
+poll_seconds = 5
+
+# Cada cuanto se reenvia el estado aunque no haya cambiado, para que el bot
+# sepa que el agente sigue vivo.
+heartbeat_seconds = 60
+
+log_file = "agent.log"
+
+# ---------------------------------------------------------------------------
+#  Juegos
+#
+#  name      = nombre EXACTO de la categoria en Twitch
+#  priority  = ante dos coincidencias simultaneas gana el numero mas alto.
+#              Por eso el juego (20) le gana al launcher (10): con el cliente
+#              de Riot y la partida abiertos a la vez, reporta la partida.
+#  processes = ejecutables que cuentan. No distingue mayusculas.
+#
+#  Para agregar uno nuevo: abri el juego y corre  twitch-game-agent.exe --scan
+# ---------------------------------------------------------------------------
+
+[[games]]
+name = "VALORANT"
+priority = 20
+processes = ["VALORANT-Win64-Shipping.exe"]
+
+[[games]]
+name = "VALORANT"
+priority = 10
+processes = ["VALORANT.exe"]
+
+# OJO: TFT corre dentro del mismo ejecutable que el LoL, asi que por proceso
+# no se pueden distinguir. Si arranca una partida de TFT va a quedar en
+# "League of Legends"; se corrige desde el chat con  !categoria Teamfight Tactics
+[[games]]
+name = "League of Legends"
+priority = 20
+processes = ["League of Legends.exe"]
+
+[[games]]
+name = "League of Legends"
+priority = 10
+processes = ["LeagueClient.exe", "LeagueClientUx.exe"]
+
+[[games]]
+name = "Counter-Strike"
+priority = 20
+processes = ["cs2.exe", "csgo.exe"]
+
+[[games]]
+name = "Fortnite"
+priority = 20
+processes = ["FortniteClient-Win64-Shipping.exe"]
+
+[[games]]
+name = "Apex Legends"
+priority = 20
+processes = ["r5apex.exe", "r5apex_dx12.exe"]
+
+[[games]]
+name = "Overwatch 2"
+priority = 20
+processes = ["Overwatch.exe"]
+
+[[games]]
+name = "Grand Theft Auto V"
+priority = 20
+processes = ["GTA5.exe", "GTA5_Enhanced.exe"]
+
+[[games]]
+name = "Rocket League"
+priority = 20
+processes = ["RocketLeague.exe"]
+
+[[games]]
+name = "Marvel Rivals"
+priority = 20
+processes = ["Marvel-Win64-Shipping.exe"]
+
+[[games]]
+name = "Dead by Daylight"
+priority = 20
+processes = ["DeadByDaylight-Win64-Shipping.exe"]
+
+[[games]]
+name = "Fall Guys"
+priority = 20
+processes = ["FallGuys_client_game.exe"]
+
+[[games]]
+name = "Among Us"
+priority = 20
+processes = ["Among Us.exe"]
+
+[[games]]
+name = "Phasmophobia"
+priority = 20
+processes = ["Phasmophobia.exe"]
+
+[[games]]
+name = "Lethal Company"
+priority = 20
+processes = ["Lethal Company.exe"]
+
+[[games]]
+name = "Content Warning"
+priority = 20
+processes = ["Content Warning.exe"]
+
+[[games]]
+name = "R.E.P.O."
+priority = 20
+processes = ["REPO.exe"]
+
+[[games]]
+name = "PEAK"
+priority = 20
+processes = ["PEAK.exe"]
+
+[[games]]
+name = "Schedule I"
+priority = 20
+processes = ["Schedule I.exe"]
+
+[[games]]
+name = "Minecraft"
+priority = 20
+processes = ["Minecraft.Windows.exe"]
+# Minecraft Java corre como javaw.exe, que usa cualquier programa hecho en
+# Java. Agregarlo daria falsos positivos, asi que queda afuera a proposito.
+
+[[games]]
+name = "Roblox"
+priority = 20
+processes = ["RobloxPlayerBeta.exe"]
+
+[[games]]
+name = "osu!"
+priority = 20
+processes = ["osu!.exe"]
+
+[[games]]
+name = "Geometry Dash"
+priority = 20
+processes = ["GeometryDash.exe"]
+
+[[games]]
+name = "Terraria"
+priority = 20
+processes = ["Terraria.exe"]
+
+[[games]]
+name = "Stardew Valley"
+priority = 20
+processes = ["Stardew Valley.exe"]
+
+[[games]]
+name = "The Sims 4"
+priority = 20
+processes = ["TS4_x64.exe"]
+
+[[games]]
+name = "ELDEN RING"
+priority = 20
+processes = ["eldenring.exe"]
+
+[[games]]
+name = "Baldur's Gate 3"
+priority = 20
+processes = ["bg3.exe", "bg3_dx11.exe"]
+
+[[games]]
+name = "Hollow Knight"
+priority = 20
+processes = ["hollow_knight.exe"]
+
+[[games]]
+name = "Rust"
+priority = 20
+processes = ["RustClient.exe"]
+
+[[games]]
+name = "Escape from Tarkov"
+priority = 20
+processes = ["EscapeFromTarkov.exe"]
+
+[[games]]
+name = "THE FINALS"
+priority = 20
+processes = ["Discovery.exe"]
+
+[[games]]
+name = "Delta Force"
+priority = 20
+processes = ["DeltaForceClient-Win64-Shipping.exe"]
+
+[[games]]
+name = "Genshin Impact"
+priority = 20
+processes = ["GenshinImpact.exe", "YuanShen.exe"]
+
+[[games]]
+name = "Honkai: Star Rail"
+priority = 20
+processes = ["StarRail.exe"]
+
+[[games]]
+name = "Palworld"
+priority = 20
+processes = ["Palworld-Win64-Shipping.exe"]
+
+[[games]]
+name = "Valheim"
+priority = 20
+processes = ["valheim.exe"]

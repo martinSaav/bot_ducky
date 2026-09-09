@@ -1,0 +1,12 @@
+# --- core ---
+aiohttp>=3.10
+python-dotenv>=1.0
+
+# --- Discord presence listener ---
+discord.py>=2.4
+# discord.py importa audioop (stdlib eliminada en Python 3.13+)
+audioop-lts>=0.2.1; python_version >= "3.13"
+
+# --- pipeline de clips ---
+yt-dlp>=2024.8.6
+google-auth>=2.30
