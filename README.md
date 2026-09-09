@@ -66,6 +66,15 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+> **`cp` sobrescribe sin preguntar.** Este comando es solo para la primera
+> vez: si ya tenías un `.env` con credenciales cargadas, lo pisa y las
+> perdés. En Git Bash podés usar `cp -n`, que se niega a tocar un archivo
+> que ya existe.
+>
+> Si ya pasó, no está todo perdido: VS Code guarda historial local de cada
+> archivo que editaste. Click derecho sobre la pestaña > **Open Timeline**,
+> o directamente en `%APPDATA%\Code\User\History`.
+
 Después de completar el `.env`, revisá que todo esté bien antes de arrancar:
 
 ```bash

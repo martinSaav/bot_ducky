@@ -1,4 +1,8 @@
+# El .env y CUALQUIER variante suya (respaldos, .env.local, .env.prod)
+# quedan fuera. La excepcion es la plantilla, que si va al repo.
 .env
+.env.*
+!.env.example
 data/
 logs/
 downloads/

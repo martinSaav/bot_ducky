@@ -65,6 +65,9 @@ build va sin TLS (ver más abajo).
 cp agent.example.toml agent.toml
 ```
 
+> Igual que con el `.env` del bot: `cp` pisa el destino sin avisar. Si ya
+> tenías un `agent.toml` configurado, usá `cp -n` o copialo a mano.
+
 Dos cosas obligatorias:
 
 - **`endpoint`** — la URL del bot. Con Tailscale, `tailscale ip -4` en la PC donde
