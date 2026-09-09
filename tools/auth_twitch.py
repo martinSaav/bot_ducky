@@ -130,6 +130,26 @@ async def run(role: str) -> int:
         await runner.cleanup()
         return 1
 
+    login = info.get("login", "")
+    expected = cfg.twitch_channel if role == "broadcaster" else cfg.bot_login
+    forzar = "--force" in sys.argv
+
+    if expected and login.lower() != expected.lower() and not forzar:
+        # No guardamos: pisar un token correcto con uno de otra cuenta deja el
+        # bot apuntando al canal equivocado, y eso no se nota hasta que actua.
+        print(f"\n[X] Autorizaste con '{login}' pero para el rol '{role}' se esperaba "
+              f"'{expected}'.")
+        print("    NO se guardo nada, tu token anterior sigue intacto.")
+        print()
+        print("    Para autorizar con la cuenta correcta:")
+        print("      1. Abri una ventana privada del navegador, o cerra sesion en twitch.tv")
+        print(f"      2. Volve a correr:  python tools/auth_twitch.py {role}")
+        print(f"      3. Inicia sesion como '{expected}'")
+        print()
+        print("    Si de verdad querias esta cuenta:  --force")
+        await runner.cleanup()
+        return 1
+
     import time
 
     store.set_sync(
@@ -145,18 +165,12 @@ async def run(role: str) -> int:
     )
     await runner.cleanup()
 
-    login = info.get("login", "?")
     print(f"\n[OK] Token guardado en {cfg.token_file}")
     print(f"     Cuenta: {login}  (user_id {info.get('user_id')})")
     print(f"     Scopes: {', '.join(info.get('scopes', []))}")
 
-    expected = cfg.twitch_channel if role == "broadcaster" else cfg.bot_login
-    if expected and login.lower() != expected.lower():
-        print(
-            f"\n[!] OJO: autorizaste con '{login}' pero para el rol '{role}' "
-            f"se esperaba '{expected}'.\n"
-            f"    Cerra sesion en twitch.tv y volve a correr el script."
-        )
+    if forzar and expected and login.lower() != expected.lower():
+        print(f"\n[!] Guardado con --force pese a que se esperaba '{expected}'.")
     return 0
 
 

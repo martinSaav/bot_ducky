@@ -146,11 +146,39 @@ es automático**: Twitch rota el refresh token en cada uso y el bot lo persiste 
 | `broadcaster` | **el streamer**, con su cuenta | `channel:manage:broadcast`, `clips:edit` | cambiar categoría y crear clips |
 | `bot` | la cuenta que escribe en el chat | `chat:read`, `chat:edit` | leer y responder en el chat |
 
-> **Esto es lo único que necesitás del streamer.** Como el token del broadcaster
-> es de su cuenta, tiene que iniciar sesión él. Dos opciones: se lo compartís por
-> pantalla y lo corre en tu máquina, o le pasás el proyecto y te manda el
-> `data/tokens.json` resultante. El script usa `force_verify=true` justamente para
-> que no se autorice sin querer con la sesión de Twitch que tenga abierta.
+#### El link no se le puede mandar y ya
+
+El redirect apunta a `http://localhost:3000/callback`, o sea **la máquina donde
+corre el script**. Si le mandás el link y ella lo abre en su casa, Twitch la
+redirige a *su* localhost, donde no hay nada escuchando: el código se pierde y
+nunca llega a tu `data/tokens.json`.
+
+Hay dos formas de resolverlo:
+
+**1. Que inicie sesión en tu máquina** (lo más simple)
+
+Abrís una **ventana privada** del navegador, corrés el script, pegás el link ahí
+y ella escribe sus datos. Vos no ves su contraseña, y tu sesión de Twitch queda
+intacta porque la ventana privada no la comparte. Al terminar, cerrás la ventana.
+
+**2. Que corra el script en su PC y te mande el resultado**
+
+Necesita Python instalado y que le pases el proyecto con un `.env` que tenga
+`TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_CHANNEL` y
+`TWITCH_REDIRECT_URI`. Corre `python tools/auth_twitch.py broadcaster` y te manda
+el `data/tokens.json` que queda.
+
+Es más incómodo y **le estás dando tu client secret**, que es lo que identifica a
+tu aplicación ante Twitch. Con gente de confianza va, pero la opción 1 evita el
+problema.
+
+> **El script no guarda nada si la cuenta no coincide.** Si autorizás con la
+> cuenta equivocada te avisa y deja tu token anterior intacto, así no perdés uno
+> bueno por una sesión abierta de más. Si de verdad querías esa cuenta, `--force`.
+>
+> Y `run.py` se niega a arrancar si el token de broadcaster no es del canal de
+> `TWITCH_CHANNEL`: seguir significaría cambiarle la categoría al canal
+> equivocado.
 
 Si vas a usar la cuenta del streamer también para el chat, dejá `TWITCH_BOT_LOGIN`
 vacío — igual hay que correr `auth_twitch.py bot` porque son scopes distintos.

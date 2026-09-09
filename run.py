@@ -41,10 +41,15 @@ async def resolve_broadcaster_id(auth: TwitchAuth, helix: Helix) -> str:
     if entry.get("user_id"):
         login = (entry.get("login") or "").lower()
         if login and login != cfg.twitch_channel:
-            log.warning(
-                "El token de broadcaster es de '%s' pero TWITCH_CHANNEL es '%s'. "
-                "Los cambios de categoria irian al canal equivocado.",
-                login, cfg.twitch_channel,
+            # Cortamos en vez de avisar: seguir significaria cambiarle la
+            # categoria al canal equivocado, y un warning en el log no es
+            # proteccion suficiente para eso.
+            raise RuntimeError(
+                f"El token de broadcaster es de '{login}' pero TWITCH_CHANNEL es "
+                f"'{cfg.twitch_channel}'. Con esto le cambiaria la categoria al canal "
+                f"equivocado.\n"
+                f"    Reautoriza con la cuenta correcta:\n"
+                f"      python tools/auth_twitch.py broadcaster"
             )
         return str(entry["user_id"])
     user = await helix.get_user(cfg.twitch_channel)
@@ -76,7 +81,11 @@ async def main() -> int:
             )
             return 1
 
-        broadcaster_id = await resolve_broadcaster_id(auth, helix)
+        try:
+            broadcaster_id = await resolve_broadcaster_id(auth, helix)
+        except RuntimeError as exc:
+            log.error("%s", exc)
+            return 1
         log.info(
             "%s | canal: %s (id %s)",
             cfg.bot_name or "bot", cfg.twitch_channel, broadcaster_id,
