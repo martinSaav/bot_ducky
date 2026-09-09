@@ -41,6 +41,10 @@ class Config:
     twitch_channel = _str("TWITCH_CHANNEL").lstrip("@").lower()
     twitch_bot_login = _str("TWITCH_BOT_LOGIN").lstrip("@").lower()
 
+    #: Como se presenta el bot en el chat y en los logs. Es solo cosmetico:
+    #: el nombre que ve el chat en cada mensaje es el de la cuenta de Twitch.
+    bot_name = _str("BOT_NAME")
+
     # --- Discord ---
     discord_token = _str("DISCORD_BOT_TOKEN")
     discord_streamer_id = _int("DISCORD_STREAMER_ID", 0)
@@ -90,6 +94,10 @@ class Config:
     def bot_login(self) -> str:
         """Cuenta que escribe en el chat; cae al broadcaster si no se configuró."""
         return self.twitch_bot_login or self.twitch_channel
+
+    def say_as(self, text: str) -> str:
+        """Antepone el nombre del bot a un mensaje de chat, si hay uno puesto."""
+        return f"[{self.bot_name}] {text}" if self.bot_name else text
 
     @property
     def sa_path(self) -> Path:

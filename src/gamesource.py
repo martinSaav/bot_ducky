@@ -141,4 +141,6 @@ class GameArbiter:
         log.info("Categoria %s (fuente: %s)", game["name"], source or "?")
 
         if changed and self.announce and cfg.autocat_announce:
-            await self.announce(f"Categoria actualizada automaticamente a: {game['name']}")
+            await self.announce(
+                cfg.say_as(f"Categoria actualizada a: {game['name']}")
+            )

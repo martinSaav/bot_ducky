@@ -77,7 +77,10 @@ async def main() -> int:
             return 1
 
         broadcaster_id = await resolve_broadcaster_id(auth, helix)
-        log.info("Canal: %s (id %s)", cfg.twitch_channel, broadcaster_id)
+        log.info(
+            "%s | canal: %s (id %s)",
+            cfg.bot_name or "bot", cfg.twitch_channel, broadcaster_id,
+        )
 
         resolver = CategoryResolver(helix, state)
         arbiter = GameArbiter(helix, resolver, broadcaster_id)
