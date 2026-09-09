@@ -80,7 +80,15 @@ async def check_discord() -> None:
         line(WARN, "DISCORD_BOT_TOKEN vacio: el auto-categorizador no arranca")
         return
     if not cfg.discord_streamer_id:
-        line(BAD, "DISCORD_STREAMER_ID vacio: el bot no sabe a quien mirar")
+        line(BAD, "DISCORD_STREAMER_ID vacio o no numerico: el bot no sabe a quien mirar")
+        return
+    # Los IDs de Discord son snowflakes de 17-20 digitos. Un numero corto suele
+    # ser el discriminador viejo (#8553), que no identifica a nadie.
+    digitos = len(str(cfg.discord_streamer_id))
+    if not 17 <= digitos <= 20:
+        line(BAD, f"DISCORD_STREAMER_ID tiene {digitos} digitos y deberia tener 17-20. "
+                  "Eso no es un ID de usuario: activa el Modo desarrollador y usa "
+                  "click derecho sobre ella > Copiar ID de usuario.")
         return
     try:
         import discord  # noqa: F401
