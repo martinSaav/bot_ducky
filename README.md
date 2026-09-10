@@ -382,6 +382,9 @@ participantes con más mensajes. Este MVP no recupera mensajes anteriores al
 arranque ni usa todavía un LLM; esas son las siguientes capas para PostgreSQL
 y el resumen semántico.
 
+Cuando el canal pasa de online a offline, el monitor genera un resumen LLM de
+la sesión y lo escribe en `logs/bot.log` como `Resumen final del stream`.
+
 Para activar el resumen semántico, configurá `LLM_API_KEY`. `!resumen` usará
 los mensajes persistidos en PostgreSQL cuando estén disponibles y volverá al
 resumen básico si la API falla o la clave está vacía. El cliente usa una API

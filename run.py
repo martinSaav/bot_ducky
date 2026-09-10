@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import time
 
 import aiohttp
 
@@ -19,6 +20,7 @@ from src import logging_setup
 from src.agent_server import AgentServer
 from src.category import CategoryResolver
 from src.chat_history import ChatHistory
+from src.chat_history import HistoryEntry
 from src.chat_history_db import PostgresChatHistory
 from src.llm_summary import LlmSummary
 from src.chat_control import ChatControlServer
@@ -38,6 +40,71 @@ from src.twitch.chat import ChatMessage
 from src.twitch.helix import Helix
 
 log = logging.getLogger("run")
+
+
+async def monitor_stream(
+    helix: Helix,
+    history: ChatHistory,
+    database_history: PostgresChatHistory | None,
+    llm_summary: LlmSummary,
+    arbiter: GameArbiter,
+    stop: asyncio.Event,
+) -> None:
+    """Detect the live-to-offline transition and log a session summary."""
+    session_started = time.time()
+    was_live = False
+    while not stop.is_set():
+        try:
+            live = await helix.get_stream(cfg.twitch_channel)
+            if live:
+                if not was_live:
+                    session_started = time.time()
+                was_live = True
+            elif was_live:
+                seconds = max(60, int(time.time() - session_started))
+                messages = history.since(seconds)
+                if database_history is not None:
+                    await database_history.flush()
+                    persisted = await database_history.recent(
+                        seconds, limit=llm_summary.max_messages
+                    )
+                    if persisted:
+                        messages = [
+                            HistoryEntry(
+                                author_id="",
+                                display_name=item["display_name"],
+                                text=item["text"],
+                                created_at=item["created_at"],
+                            )
+                            for item in persisted
+                        ]
+                summary = await llm_summary.summarize(
+                    messages, live_game_name(arbiter), _format_seconds(seconds)
+                )
+                if summary:
+                    log.info("Resumen final del stream:\n%s", summary)
+                else:
+                    log.info("Stream finalizado; no hubo resumen LLM disponible")
+                was_live = False
+                session_started = time.time()
+        except Exception:  # noqa: BLE001 - monitor must not stop the bot
+            log.exception("No se pudo comprobar el estado del stream")
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=cfg.presence_check_seconds)
+        except asyncio.TimeoutError:
+            pass
+
+
+def live_game_name(arbiter: GameArbiter) -> str:
+    sources = arbiter.sources()
+    games = [report.game for report in sources.values() if report.game and not report.stale]
+    return games[0] if games else "sin juego detectado"
+
+
+def _format_seconds(seconds: int) -> str:
+    hours, remainder = divmod(seconds, 3600)
+    minutes = remainder // 60
+    return f"{hours}h" if minutes == 0 else f"{hours}h {minutes}m"
 
 
 async def resolve_broadcaster_id(auth: TwitchAuth, helix: Helix) -> str:
@@ -149,8 +216,10 @@ async def main() -> int:
         if auth.has("bot"):
             registry = Registry(svc)
             async def on_chat_message(message: ChatMessage) -> None:
-                history.add(message)
-                if database_history is not None:
+                accepted = history.add(message)
+                if accepted:
+                    log.info("Mensaje guardado de %s", message.display_name)
+                if accepted and database_history is not None:
                     database_history.enqueue(message)
                 await registry.dispatch(message)
 
@@ -193,6 +262,13 @@ async def main() -> int:
             log.warning("Sin fuentes: la categoria no se va a cambiar sola")
         elif cfg.autocat_dry_run:
             log.info("Auto-categorizador en DRY-RUN: no toca Twitch")
+
+        tasks["stream-monitor"] = asyncio.create_task(
+            monitor_stream(
+                helix, history, database_history, llm_summary, arbiter, stop
+            ),
+            name="stream-monitor",
+        )
 
         # --- 3. clips -----------------------------------------------------
         drive = DriveUploader(session)

@@ -47,13 +47,15 @@ class PostgresChatHistory:
             await connection.execute(_SCHEMA)
         self._worker = asyncio.create_task(self._run(), name="chat-history-db")
 
-    def enqueue(self, message: ChatMessage) -> None:
+    def enqueue(self, message: ChatMessage) -> bool:
         if message.author.lower() in self._ignored_authors:
-            return
+            return False
         try:
             self._queue.put_nowait(message)
         except asyncio.QueueFull:
             log.warning("Chat history queue full; dropping message %s", message.message_id)
+            return False
+        return True
 
     async def _run(self) -> None:
         while True:
@@ -109,6 +111,10 @@ class PostgresChatHistory:
             }
             for row in rows
         ]
+
+    async def flush(self) -> None:
+        """Wait until all queued messages have been inserted."""
+        await self._queue.join()
 
     async def stop(self) -> None:
         if self._worker is not None:

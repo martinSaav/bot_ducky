@@ -35,15 +35,16 @@ class ChatHistory:
         self._messages: deque[HistoryEntry] = deque(maxlen=max_messages)
         self._ignored_authors = {author.lower() for author in (ignored_authors or set())}
 
-    def add(self, message: ChatMessage) -> None:
+    def add(self, message: ChatMessage) -> bool:
         if message.author.lower() in self._ignored_authors:
-            return
+            return False
         text = " ".join(message.text.split())
         if not text:
-            return
+            return False
         self._messages.append(
             HistoryEntry(message.author_id, message.display_name, text, time.time())
         )
+        return True
 
     def since(self, seconds: int) -> list[HistoryEntry]:
         cutoff = time.time() - seconds
