@@ -21,6 +21,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE INDEX IF NOT EXISTS chat_messages_created_at_idx ON chat_messages (created_at);
 CREATE INDEX IF NOT EXISTS chat_messages_author_id_created_at_idx
     ON chat_messages (author_id, created_at);
+CREATE TABLE IF NOT EXISTS stream_sessions (
+    id BIGSERIAL PRIMARY KEY,
+    twitch_stream_id VARCHAR(255) UNIQUE NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    ended_at TIMESTAMPTZ,
+    game_name VARCHAR(255),
+    message_count INTEGER NOT NULL DEFAULT 0,
+    summary TEXT
+);
+CREATE INDEX IF NOT EXISTS stream_sessions_started_at_idx
+    ON stream_sessions (started_at);
 """
 
 
@@ -115,6 +126,48 @@ class PostgresChatHistory:
     async def flush(self) -> None:
         """Wait until all queued messages have been inserted."""
         await self._queue.join()
+
+    async def start_session(
+        self, stream_id: str, started_at: datetime, game_name: str | None
+    ) -> None:
+        if self._pool is None:
+            return
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                """
+                INSERT INTO stream_sessions (twitch_stream_id, started_at, game_name)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (twitch_stream_id) DO NOTHING
+                """,
+                stream_id,
+                started_at,
+                game_name,
+            )
+
+    async def finish_session(
+        self,
+        stream_id: str,
+        ended_at: datetime,
+        game_name: str | None,
+        message_count: int,
+        summary: str | None,
+    ) -> None:
+        if self._pool is None:
+            return
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                """
+                UPDATE stream_sessions
+                SET ended_at = $2, game_name = COALESCE($3, game_name),
+                    message_count = $4, summary = $5
+                WHERE twitch_stream_id = $1
+                """,
+                stream_id,
+                ended_at,
+                game_name,
+                message_count,
+                summary,
+            )
 
     async def stop(self) -> None:
         if self._worker is not None:

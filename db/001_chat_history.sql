@@ -34,3 +34,16 @@ CREATE TABLE IF NOT EXISTS user_summaries (
     last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     processed_until_id BIGINT REFERENCES chat_messages(id)
 );
+
+CREATE TABLE IF NOT EXISTS stream_sessions (
+    id BIGSERIAL PRIMARY KEY,
+    twitch_stream_id VARCHAR(255) UNIQUE NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    ended_at TIMESTAMPTZ,
+    game_name VARCHAR(255),
+    message_count INTEGER NOT NULL DEFAULT 0,
+    summary TEXT
+);
+
+CREATE INDEX IF NOT EXISTS stream_sessions_started_at_idx
+    ON stream_sessions (started_at);

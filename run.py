@@ -13,6 +13,7 @@ import asyncio
 import logging
 import signal
 import time
+from datetime import datetime, timezone
 
 import aiohttp
 
@@ -52,6 +53,8 @@ async def monitor_stream(
 ) -> None:
     """Detect the live-to-offline transition and log a session summary."""
     session_started = time.time()
+    stream_id: str | None = None
+    session_game: str | None = None
     was_live = False
     while not stop.is_set():
         try:
@@ -59,6 +62,14 @@ async def monitor_stream(
             if live:
                 if not was_live:
                     session_started = time.time()
+                    stream_id = str(live.get("id", "")) or None
+                    session_game = live.get("game_name")
+                    if database_history is not None and stream_id:
+                        await database_history.start_session(
+                            stream_id,
+                            _parse_stream_started(live.get("started_at")),
+                            session_game,
+                        )
                 was_live = True
             elif was_live:
                 seconds = max(60, int(time.time() - session_started))
@@ -85,8 +96,21 @@ async def monitor_stream(
                     log.info("Resumen final del stream:\n%s", summary)
                 else:
                     log.info("Stream finalizado; no hubo resumen LLM disponible")
+                if database_history is not None and stream_id:
+                    final_game = live_game_name(arbiter)
+                    if final_game == "sin juego detectado":
+                        final_game = session_game
+                    await database_history.finish_session(
+                        stream_id,
+                        datetime.now(timezone.utc),
+                        final_game,
+                        len(messages),
+                        summary,
+                    )
                 was_live = False
                 session_started = time.time()
+                stream_id = None
+                session_game = None
         except Exception:  # noqa: BLE001 - monitor must not stop the bot
             log.exception("No se pudo comprobar el estado del stream")
         try:
@@ -105,6 +129,17 @@ def _format_seconds(seconds: int) -> str:
     hours, remainder = divmod(seconds, 3600)
     minutes = remainder // 60
     return f"{hours}h" if minutes == 0 else f"{hours}h {minutes}m"
+
+
+def _parse_stream_started(value: str | None) -> datetime:
+    if not value:
+        return datetime.now(timezone.utc)
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return datetime.now(timezone.utc)
 
 
 async def resolve_broadcaster_id(auth: TwitchAuth, helix: Helix) -> str:

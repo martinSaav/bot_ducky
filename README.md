@@ -384,6 +384,8 @@ y el resumen semántico.
 
 Cuando el canal pasa de online a offline, el monitor genera un resumen LLM de
 la sesión y lo escribe en `logs/bot.log` como `Resumen final del stream`.
+Si PostgreSQL está activo, además guarda la sesión en `stream_sessions` con su
+inicio, fin, juego, cantidad de mensajes y resumen.
 
 Para activar el resumen semántico, configurá `LLM_API_KEY`. `!resumen` usará
 los mensajes persistidos en PostgreSQL cuando estén disponibles y volverá al
