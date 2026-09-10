@@ -129,7 +129,7 @@ class Registry:
                 continue
             if cmd.name not in seen:
                 seen.append(cmd.name)
-        return cfg.say_as("Comandos: " + " ".join(f"{PREFIX}{n}" for n in seen))
+        return "Comandos: " + " ".join(f"{PREFIX}{n}" for n in seen)
 
     async def cmd_rank(self, ctx: Ctx) -> str:
         if not ctx.svc.lol.configured:

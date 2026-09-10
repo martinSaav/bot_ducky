@@ -96,8 +96,8 @@ class Config:
         return self.twitch_bot_login or self.twitch_channel
 
     def say_as(self, text: str) -> str:
-        """Antepone el nombre del bot a un mensaje de chat, si hay uno puesto."""
-        return f"[{self.bot_name}] {text}" if self.bot_name else text
+        """Devuelve el mensaje sin una firma redundante del bot."""
+        return text
 
     @property
     def sa_path(self) -> Path:
