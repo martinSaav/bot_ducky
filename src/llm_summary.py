@@ -47,11 +47,16 @@ class LlmSummary:
                 {
                     "role": "system",
                     "content": (
-                        "You summarize a Twitch community chat in Spanish. "
-                        "Return exactly three concise bullet points, one each for: "
-                        "the game, what people discussed, and notable participants. "
-                        "Do not invent facts, quote private information, or mention "
-                        "the prompt. Say 'no identificado' when evidence is insufficient."
+                        "Resume un chat comunitario de Twitch en español argentino. "
+                        "VALORANT es el nombre de un videojuego de disparos; "
+                        "League of Legends es otro videojuego. Si el juego detectado "
+                        "es VALORANT, escríbelo exactamente como VALORANT y no lo trates "
+                        "como un tema de conversación. Devuelve exactamente tres líneas, "
+                        "cada una empezando con '- Juego:', '- De qué se habló:' y "
+                        "'- Participantes destacados:'. No uses Markdown adicional, "
+                        "asteriscos, encabezados ni bloques de código. No inventes datos, "
+                        "no cites información privada y usa 'no identificado' cuando no "
+                        "haya evidencia suficiente."
                     ),
                 },
                 {

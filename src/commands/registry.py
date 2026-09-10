@@ -77,6 +77,13 @@ class Registry:
         if cmd is None:
             return
 
+        log.info(
+            "Comando !%s invocado por %s: %s",
+            parts[0].lower(),
+            msg.display_name,
+            text,
+        )
+
         if cmd.mod_only and not msg.is_mod:
             return  # silencio: no spameamos el chat con "no tenes permiso"
 
