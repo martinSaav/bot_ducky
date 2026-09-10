@@ -366,6 +366,22 @@ La presencia de Discord se revalida cada 60 segundos aunque no haya un evento
 nuevo. Esto permite detectar que una partida de LoL o Valorant comenzó después
 de abrir el juego.
 
+### Resumen del chat
+
+Durante la ejecución, el bot conserva los últimos mensajes en memoria. El
+comando `!resumen` muestra una primera versión estructurada:
+
+```text
+!resumen       # última hora
+!resumen 30m   # últimos 30 minutos
+!resumen 2h    # últimas 2 horas
+```
+
+Incluye el juego detectado, palabras frecuentes como temas aproximados y los
+participantes con más mensajes. Este MVP no recupera mensajes anteriores al
+arranque ni usa todavía un LLM; esas son las siguientes capas para PostgreSQL
+y el resumen semántico.
+
 Cuando detecta una partida de League of Legends o VALORANT, el bot crea una
 prediction de Twitch con las opciones `Gana` y `Pierde`. No crea otra mientras
 haya una activa y dura 5 minutos por defecto. En LoL confirma la partida contra

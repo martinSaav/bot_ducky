@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import aiohttp
 
 from .category import CategoryResolver
+from .chat_history import ChatHistory
 from .gamesource import GameArbiter
 from .riot.lol import LolClient
 from .riot.valorant import ValorantClient
@@ -31,6 +32,7 @@ class Services:
     lol: LolClient
     valorant: ValorantClient
     broadcaster_id: str
+    history: ChatHistory
     chat: "ChatClient | None" = None
     presence: "PresenceBot | None" = None
     clips: Any = None

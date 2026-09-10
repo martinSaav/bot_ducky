@@ -18,6 +18,7 @@ import aiohttp
 from src import logging_setup
 from src.agent_server import AgentServer
 from src.category import CategoryResolver
+from src.chat_history import ChatHistory
 from src.chat_control import ChatControlServer
 from src.clips.pipeline import ClipPipeline
 from src.commands.registry import Registry
@@ -31,6 +32,7 @@ from src.services import Services
 from src.storage import JsonStore
 from src.twitch.auth import TwitchAuth
 from src.twitch.chat import ChatClient
+from src.twitch.chat import ChatMessage
 from src.twitch.helix import Helix
 
 log = logging.getLogger("run")
@@ -95,6 +97,7 @@ async def main() -> int:
         resolver = CategoryResolver(helix, state)
         lol = LolClient(session)
         valorant = ValorantClient(session)
+        history = ChatHistory()
         arbiter = GameArbiter(
             helix, resolver, broadcaster_id, state=state, lol=lol, valorant=valorant,
         )
@@ -109,6 +112,7 @@ async def main() -> int:
             lol=lol,
             valorant=valorant,
             broadcaster_id=broadcaster_id,
+            history=history,
         )
         tasks: dict[str, asyncio.Task] = {}
         stop = asyncio.Event()
@@ -117,8 +121,12 @@ async def main() -> int:
         # --- 2. chat ------------------------------------------------------
         if auth.has("bot"):
             registry = Registry(svc)
+            async def on_chat_message(message: ChatMessage) -> None:
+                history.add(message)
+                await registry.dispatch(message)
+
             chat = ChatClient(
-                session, auth, cfg.bot_login, cfg.twitch_channel, registry.dispatch
+                session, auth, cfg.bot_login, cfg.twitch_channel, on_chat_message
             )
             svc.chat = chat
             arbiter.announce = chat.say

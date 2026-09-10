@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -104,6 +105,8 @@ class Registry:
     def _register_all(self) -> None:
         self.add("comandos", self.cmd_help, aliases=("ayuda", "help"),
                  help="lista de comandos", cooldown=20)
+        self.add("resumen", self.cmd_summary, aliases=("summary",),
+             help="resume el chat reciente", cooldown=60)
         self.add("lrank", self.cmd_rank, aliases=("rank", "elo", "lol"),
                  help="elo de LoL del streamer", cooldown=10)
         self.add("lmatch", self.cmd_live, aliases=("partida", "live", "game", "enpartida"),
@@ -144,6 +147,48 @@ class Registry:
         if not ctx.svc.lol.configured:
             return "Los comandos de LoL no estan configurados todavia."
         return await ctx.svc.lol.rank(ctx.argstr or None)
+
+    async def cmd_summary(self, ctx: Ctx) -> str:
+        seconds = self._summary_seconds(ctx.argstr)
+        if seconds is None:
+            return "Uso: !resumen [10m|1h|2h]"
+        messages = ctx.svc.history.since(seconds)
+        if not messages:
+            return "No hay mensajes guardados en ese período."
+
+        topics = ctx.svc.history.topic_words(messages)
+        participants = ctx.svc.history.participants(messages)
+        topic_text = ", ".join(topics) if topics else "no se detectaron temas claros"
+        people_text = ", ".join(f"{name} ({count})" for name, count in participants)
+        game = self._current_game(ctx)
+        return (
+            f"Resumen ({self._format_window(seconds)}): "
+            f"{len(messages)} mensajes. "
+            f"Juego: {game}. "
+            f"Temas aproximados: {topic_text}. "
+            f"Participantes: {people_text}."
+        )
+
+    @staticmethod
+    def _summary_seconds(value: str) -> int | None:
+        if not value:
+            return 3600
+        match = re.fullmatch(r"([1-9]\d*)([mh])", value.lower())
+        if not match:
+            return None
+        amount, unit = int(match.group(1)), match.group(2)
+        seconds = amount * (60 if unit == "m" else 3600)
+        return seconds if seconds <= 24 * 3600 else None
+
+    @staticmethod
+    def _format_window(seconds: int) -> str:
+        return f"{seconds // 3600}h" if seconds % 3600 == 0 else f"{seconds // 60}m"
+
+    @staticmethod
+    def _current_game(ctx: Ctx) -> str:
+        sources = ctx.svc.arbiter.sources()
+        live = [report.game for report in sources.values() if report.game and not report.stale]
+        return live[0] if live else "sin juego detectado"
 
     async def cmd_live(self, ctx: Ctx) -> str:
         if not ctx.svc.lol.configured:
