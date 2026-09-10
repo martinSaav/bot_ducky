@@ -348,6 +348,16 @@ Arrancar todo:
 python run.py
 ```
 
+Con el bot corriendo, abrí otra terminal en la carpeta del proyecto y ejecutá:
+
+```bash
+python tools/chat_console.py
+```
+
+Escribí el mensaje y presioná Enter para enviarlo al canal. `:quit` o `:salir`
+cierran solamente esa consola. El cliente usa la conexión IRC existente y su
+rate limit, así que no abre otra sesión de Twitch.
+
 Corrida manual de clips, sin esperar al horario:
 
 ```bash

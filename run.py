@@ -18,6 +18,7 @@ import aiohttp
 from src import logging_setup
 from src.agent_server import AgentServer
 from src.category import CategoryResolver
+from src.chat_control import ChatControlServer
 from src.clips.pipeline import ClipPipeline
 from src.commands.registry import Registry
 from src.config import cfg
@@ -108,6 +109,8 @@ async def main() -> int:
         )
 
         tasks: dict[str, asyncio.Task] = {}
+        stop = asyncio.Event()
+        chat_control: ChatControlServer | None = None
 
         # --- 2. chat ------------------------------------------------------
         if auth.has("bot"):
@@ -118,6 +121,8 @@ async def main() -> int:
             svc.chat = chat
             arbiter.announce = chat.say
             tasks["chat"] = asyncio.create_task(chat.run(), name="chat")
+            chat_control = ChatControlServer(chat)
+            await chat_control.start()
             log.info("Bot de chat: activo como %s", cfg.bot_login)
         else:
             log.warning(
@@ -166,7 +171,6 @@ async def main() -> int:
             log.error("No hay ningun subsistema configurado. Revisa el .env y el README.")
             return 1
 
-        stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
@@ -193,6 +197,8 @@ async def main() -> int:
             await agent_server.stop()
         if svc.chat:
             svc.chat.stop()
+        if chat_control is not None:
+            await chat_control.stop()
         if svc.presence:
             await svc.presence.close()
         for task in tasks.values():

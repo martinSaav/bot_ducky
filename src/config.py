@@ -61,6 +61,10 @@ class Config:
     agent_port = _int("AGENT_PORT", 8787)
     agent_debounce = _int("AGENT_DEBOUNCE_SECONDS", 15)
 
+    # --- control local del chat ---
+    chat_control_host = _str("CHAT_CONTROL_HOST", "127.0.0.1")
+    chat_control_port = _int("CHAT_CONTROL_PORT", 8790)
+
     # --- Riot ---
     riot_api_key = _str("RIOT_API_KEY")
     riot_id = _str("RIOT_ID")
