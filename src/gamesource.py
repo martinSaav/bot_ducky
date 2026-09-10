@@ -75,13 +75,18 @@ class GameArbiter:
         self._last_applied = game_name
 
     async def report(
-        self, source: str, game: str | None, *, stale_after: float | None = None
+        self,
+        source: str,
+        game: str | None,
+        *,
+        stale_after: float | None = None,
+        force: bool = False,
     ) -> None:
         """Una fuente informa que juego ve. Siempre es el estado absoluto."""
         previous = self._reports.get(source)
         self._reports[source] = Report(game=game, at=time.monotonic(), stale_after=stale_after)
 
-        if previous is not None and previous.game == game and not previous.stale:
+        if previous is not None and previous.game == game and not previous.stale and not force:
             return  # latido sin novedad: no reprogramamos nada
 
         log.debug("Fuente '%s' reporta %r", source, game)
@@ -179,6 +184,8 @@ class GameArbiter:
             return
 
         try:
+            if self.state is not None:
+                await self._forget_finished_prediction()
             match_key = await self._prediction_match_key(normalized)
             if match_key is None:
                 return
@@ -222,6 +229,86 @@ class GameArbiter:
         except Exception:  # noqa: BLE001 - una prediction no debe apagar el arbitro
             log.exception("No se pudo crear la prediction para %s", game_name)
 
+    async def confirm_valorant_prediction(self) -> str:
+        """Inicia una prediction de Valorant tras confirmacion manual."""
+        if self.state is None:
+            return "No puedo guardar el estado de la prediction."
+        await self._forget_finished_prediction()
+        if self.state.get("prediction_active"):
+            return "Ya hay una prediction activa registrada."
+
+        active = await self.helix.get_predictions(self.broadcaster_id)
+        if any(prediction.get("status") == "ACTIVE" for prediction in active):
+            return "Twitch ya tiene una prediction activa."
+
+        normalized = "valorant"
+        match_key = f"valorant:manual:{time.time_ns()}"
+        prediction = await self.helix.create_prediction(
+            self.broadcaster_id,
+            title="¿Gana esta partida?",
+            outcomes=["Gana", "Pierde"],
+            prediction_window=cfg.prediction_window,
+        )
+        outcomes = {
+            str(outcome.get("title", "")).lower(): str(outcome.get("id", ""))
+            for outcome in prediction.get("outcomes", [])
+        }
+        await self.state.set(
+            "prediction_active",
+            {
+                "match_key": match_key,
+                "prediction_id": str(prediction.get("id", "")),
+                "outcomes": outcomes,
+                "game": normalized,
+            },
+        )
+        await self.state.set("prediction_session", {"game": normalized, "key": match_key})
+        return "Prediction de Valorant iniciada."
+
+    async def resolve_manual_prediction(self, won: bool) -> str:
+        """Resuelve manualmente la prediction actual de Valorant."""
+        prediction = self.state.get("prediction_active") if self.state else None
+        if not prediction:
+            return "No hay una prediction activa registrada."
+        outcome = "gana" if won else "pierde"
+        outcome_id = (prediction.get("outcomes") or {}).get(outcome)
+        if not outcome_id:
+            return "La prediction no tiene el resultado esperado."
+        await self.helix.resolve_prediction(
+            self.broadcaster_id,
+            prediction_id=prediction["prediction_id"],
+            winning_outcome_id=outcome_id,
+        )
+        await self.state.set("prediction_active", None)
+        return "Partida ganada." if won else "Partida perdida."
+
+    async def cancel_prediction(self) -> str:
+        prediction = self.state.get("prediction_active") if self.state else None
+        if not prediction:
+            return "No hay una prediction activa registrada."
+        try:
+            await self.helix.cancel_prediction(
+                self.broadcaster_id, prediction["prediction_id"]
+            )
+        except Exception as exc:  # Twitch rechaza cancelar eventos ya terminados.
+            if "already ended" not in str(exc).lower():
+                raise
+        await self.state.set("prediction_active", None)
+        return "Prediction cancelada."
+
+    async def _forget_finished_prediction(self) -> None:
+        """Elimina del estado una prediction que Twitch ya cerro."""
+        prediction = self.state.get("prediction_active") if self.state else None
+        if not prediction:
+            return
+        remote = await self.helix.get_predictions(self.broadcaster_id)
+        current = next(
+            (item for item in remote if item.get("id") == prediction.get("prediction_id")),
+            None,
+        )
+        if current is None or current.get("status") not in {"ACTIVE", "LOCKED"}:
+            await self.state.set("prediction_active", None)
+
     async def _prediction_match_key(self, normalized_game: str) -> str | None:
         if "league of legends" in normalized_game:
             if self.lol is None or not self.lol.configured:
@@ -238,8 +325,12 @@ class GameArbiter:
         session = self.state.get("prediction_session") or {}
         if session.get("game") == normalized_game and session.get("key"):
             return str(session["key"])
-        key = f"valorant:{normalized_game}:{time.time_ns()}"
+        key = f"valorant:auto:{normalized_game}:{time.time_ns()}"
         await self.state.set("prediction_session", {"game": normalized_game, "key": key})
+        log.warning(
+            "Prediction automatica de Valorant: no hay API de partida activa; "
+            "se basa en la deteccion del juego"
+        )
         return key
 
     def _schedule_prediction_result(self) -> None:

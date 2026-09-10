@@ -112,6 +112,15 @@ class Registry:
                  help="rango de Valorant", cooldown=10)
         self.add("vmatch", self.cmd_vmatch, aliases=("ultima", "lastmatch"),
                  help="ultima partida de Valorant", cooldown=15)
+        self.add("vgame", self.cmd_vgame,
+             help="confirma una partida de Valorant y crea prediction",
+             cooldown=5, mod_only=True)
+        self.add("vwin", self.cmd_vwin,
+             help="resuelve la prediction como victoria", cooldown=5, mod_only=True)
+        self.add("vloss", self.cmd_vloss,
+             help="resuelve la prediction como derrota", cooldown=5, mod_only=True)
+        self.add("vcancel", self.cmd_vcancel,
+             help="cancela la prediction actual", cooldown=5, mod_only=True)
         self.add("uptime", self.cmd_uptime, help="tiempo en vivo", cooldown=20)
         self.add("clip", self.cmd_clip, help="crea un clip", cooldown=30)
         self.add("categoria", self.cmd_category, aliases=("cat", "juego"),
@@ -150,6 +159,20 @@ class Registry:
         if not ctx.svc.valorant.configured:
             return "Los comandos de Valorant no estan configurados todavia."
         return await ctx.svc.valorant.last_match(ctx.argstr or None)
+
+    async def cmd_vgame(self, ctx: Ctx) -> str:
+        if not ctx.svc.valorant.configured:
+            return "Los comandos de Valorant no estan configurados todavia."
+        return await ctx.svc.arbiter.confirm_valorant_prediction()
+
+    async def cmd_vwin(self, ctx: Ctx) -> str:
+        return await ctx.svc.arbiter.resolve_manual_prediction(True)
+
+    async def cmd_vloss(self, ctx: Ctx) -> str:
+        return await ctx.svc.arbiter.resolve_manual_prediction(False)
+
+    async def cmd_vcancel(self, ctx: Ctx) -> str:
+        return await ctx.svc.arbiter.cancel_prediction()
 
     async def cmd_uptime(self, ctx: Ctx) -> str:
         stream = await ctx.svc.helix.get_stream(cfg.twitch_channel)

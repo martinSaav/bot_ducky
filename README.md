@@ -362,16 +362,20 @@ Escribí el mensaje y presioná Enter para enviarlo al canal. `:quit` o `:salir`
 cierran solamente esa consola. El cliente usa la conexión IRC existente y su
 rate limit, así que no abre otra sesión de Twitch.
 
+La presencia de Discord se revalida cada 60 segundos aunque no haya un evento
+nuevo. Esto permite detectar que una partida de LoL o Valorant comenzó después
+de abrir el juego.
+
 Cuando detecta una partida de League of Legends o VALORANT, el bot crea una
 prediction de Twitch con las opciones `Gana` y `Pierde`. No crea otra mientras
 haya una activa y dura 5 minutos por defecto. En LoL confirma la partida contra
 Riot y usa su `gameId` como clave idempotente. En Valorant usa una sesión
 persistida del detector, porque la API de HenrikDev configurada en este proyecto
-no expone una partida activa con un ID comparable. La resolución sigue siendo
-automática cuando la API devuelve un resultado explícito: anuncia `Partida
-ganada` o `Partida perdida` y resuelve la prediction correspondiente. LoL se
-vincula por `gameId`; en Valorant se consulta la partida más reciente, por lo
-que conviene revisar el log si HenrikDev tarda en publicarla.
+no expone una partida activa con un ID comparable. Por eso Valorant inicia la
+prediction basándose en la detección de `VALORANT`, no en una confirmación de
+partida: puede dispararse si el juego está abierto en el menú. Al finalizar,
+consulta la última partida publicada para anunciar `Partida ganada` o `Partida
+perdida`; LoL se vincula con mayor precisión por `gameId`.
 
 Corrida manual de clips, sin esperar al horario:
 
@@ -417,6 +421,9 @@ vez de la del streamer.
 | `!categoria <juego>` | Cambia la categoría a mano (sin argumento, muestra la actual) |
 | `!auto on` / `!auto off` | Prende y apaga el auto-categorizador en caliente. Sin argumento dice qué fuentes están vivas |
 | `!recargar` | Relee `config/game_map.json` sin reiniciar el bot |
+| `!vgame` | Confirma manualmente una partida de Valorant e inicia la prediction |
+| `!vwin` / `!vloss` | Resuelve manualmente la prediction como victoria o derrota |
+| `!vcancel` | Cancela la prediction actual y limpia su estado |
 
 Detalles del comportamiento:
 

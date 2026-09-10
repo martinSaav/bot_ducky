@@ -212,6 +212,14 @@ class Helix:
             role="broadcaster",
         )
 
+    async def cancel_prediction(self, broadcaster_id: str, prediction_id: str) -> None:
+        await self.request(
+            "PATCH", "/predictions",
+            params={"broadcaster_id": broadcaster_id, "id": prediction_id},
+            json_body={"status": "CANCELED"},
+            role="broadcaster",
+        )
+
     # ------------------------------------------------------------------
     # clips
     # ------------------------------------------------------------------

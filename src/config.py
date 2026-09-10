@@ -49,6 +49,7 @@ class Config:
     discord_token = _str("DISCORD_BOT_TOKEN")
     discord_streamer_id = _int("DISCORD_STREAMER_ID", 0)
     presence_debounce = _int("PRESENCE_DEBOUNCE_SECONDS", 45)
+    presence_check_seconds = _int("PRESENCE_CHECK_SECONDS", 60)
     autocat_dry_run = _bool("AUTOCAT_DRY_RUN", False)
     autocat_enabled = _bool("AUTOCAT_ENABLED", True)
     autocat_only_when_live = _bool("AUTOCAT_ONLY_WHEN_LIVE", False)

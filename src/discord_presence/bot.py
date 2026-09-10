@@ -9,6 +9,7 @@ desarrolladores de Discord (Bot > Privileged Gateway Intents).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -39,6 +40,7 @@ class PresenceBot(discord.Client):
         super().__init__(intents=intents)
 
         self.arbiter = arbiter
+        self._presence_check_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------
     async def on_ready(self) -> None:
@@ -60,6 +62,10 @@ class PresenceBot(discord.Client):
         # Si ya estaba jugando cuando arrancamos, informamos igual: sin esto
         # el arbitro no sabria nada hasta el proximo cambio de actividad.
         await self.arbiter.report("discord", playing_name(member))
+        if self._presence_check_task is None or self._presence_check_task.done():
+            self._presence_check_task = asyncio.create_task(
+                self._periodic_check(), name="presence-check"
+            )
 
     def _find_streamer(self) -> Any | None:
         for guild in self.guilds:
@@ -76,3 +82,20 @@ class PresenceBot(discord.Client):
             return
         log.debug("Presencia: %r -> %r", old, new)
         await self.arbiter.report("discord", new)
+
+    async def _periodic_check(self) -> None:
+        while not self.is_closed():
+            await asyncio.sleep(cfg.presence_check_seconds)
+            member = self._find_streamer()
+            if member is None:
+                continue
+            await self.arbiter.report(
+                "discord", playing_name(member), force=True
+            )
+
+    async def close(self) -> None:
+        if self._presence_check_task is not None:
+            self._presence_check_task.cancel()
+            await asyncio.gather(self._presence_check_task, return_exceptions=True)
+            self._presence_check_task = None
+        await super().close()
