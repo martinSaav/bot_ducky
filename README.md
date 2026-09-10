@@ -194,15 +194,17 @@ El nombre vive en cuatro lugares distintos, y solo dos son código:
 | Mensajes del bot | el chat | `BOT_NAME` en el `.env` |
 | Logs | vos | `BOT_NAME` en el `.env` |
 
-Con `BOT_NAME=BotDucky` los mensajes salen así:
+Los mensajes del bot salen directamente con el nombre de su cuenta de Twitch,
+sin un prefijo adicional:
 
 ```
-[BotDucky] Categoria actualizada a: VALORANT
-[BotDucky] Comandos: !rank !partida !valorant !uptime !clip
+Categoria actualizada a: VALORANT
+Comandos: !lrank !lmatch !vrank !vmatch !uptime !clip
 ```
 
-Dejalo vacío y salen sin prefijo. Es solo cosmético: **el nombre que el chat ve
-en cada mensaje es el de la cuenta de Twitch**, no este.
+`BOT_NAME` se conserva para compatibilidad con configuraciones anteriores, pero
+ya no se antepone a los mensajes. **El nombre que el chat ve en cada mensaje es
+el de la cuenta de Twitch**.
 
 > **El cambio de categoría no se le atribuye a nadie.** Twitch no expone quién
 > modificó la información del canal, ni en la API ni en la interfaz — la
@@ -372,15 +374,15 @@ Los logs van a consola y a `logs/bot.log` (rotativo, 5 archivos de 5 MB).
 
 | Comando | Alias | Qué devuelve |
 |---|---|---|
-| `!rank` | `!elo` `!lol` | Elo de SoloQ y Flex con LP y winrate |
-| `!partida` | `!live` `!game` | Campeón, cola, duración y los 5 enemigos |
-| `!valorant` | `!val` `!vrank` | Rango actual, RR, cambio de la última y peak |
+| `!lrank` | `!rank` `!elo` `!lol` | Elo de SoloQ y Flex con LP y winrate |
+| `!lmatch` | `!partida` `!live` `!game` | Campeón, cola, duración y los 5 enemigos |
+| `!vrank` | `!valorant` `!val` | Rango actual, RR, cambio de la última y peak |
 | `!vmatch` | `!ultima` | Mapa, agente, K/D/A y resultado de la última |
 | `!uptime` | | Tiempo en vivo |
 | `!clip` | | Crea un clip (cooldown 30 s) |
 | `!comandos` | `!ayuda` | Lista los disponibles |
 
-Los tres primeros aceptan un Riot ID: `!rank Alguien#LAS` consulta esa cuenta en
+Los tres primeros aceptan un Riot ID: `!lrank Alguien#LAS` consulta esa cuenta en
 vez de la del streamer.
 
 **Solo moderadores:**
@@ -483,7 +485,7 @@ Tres cosas a tener en cuenta al mudarlo a un VPS Linux:
 | `Login authentication failed` en el chat | El token del rol `bot` venció o se revocó. El bot lo refresca solo y reconecta; si insiste, volvé a correr `auth_twitch.py bot`. |
 | La categoría no cambia nunca | Falta el PRESENCE INTENT, o el streamer tiene apagada la detección de actividad, o no comparte servidor con el bot. Mirá el log: dice cuál de las tres. |
 | `storageQuotaExceeded` | La carpeta de Drive no está en una Unidad compartida. Ver la sección de Google Drive. |
-| `!rank` responde que la key venció | La Development Key de Riot dura 24 h. Pedí una Personal Key. |
+| `!lrank` responde que la key venció | La Development Key de Riot dura 24 h. Pedí una Personal Key. |
 | El agente no llega al bot | Probá `http://IP:8787/health` desde la PC de ella. Si no responde: Tailscale caído, `AGENT_HOST` no es `0.0.0.0`, o el firewall de Windows bloquea el puerto. |
 | El agente reporta pero no cambia nada | Token distinto entre `.env` y `agent.toml` (sale 401 en el log del agente), o `!auto off` activo. |
 | `invalid client` al autorizar | La redirect URI del `.env` no coincide exactamente con la de dev.twitch.tv. |

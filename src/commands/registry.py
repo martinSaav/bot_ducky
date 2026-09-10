@@ -104,11 +104,11 @@ class Registry:
     def _register_all(self) -> None:
         self.add("comandos", self.cmd_help, aliases=("ayuda", "help"),
                  help="lista de comandos", cooldown=20)
-        self.add("rank", self.cmd_rank, aliases=("elo", "lol"),
+        self.add("lrank", self.cmd_rank, aliases=("rank", "elo", "lol"),
                  help="elo de LoL del streamer", cooldown=10)
-        self.add("partida", self.cmd_live, aliases=("live", "game", "enpartida"),
+        self.add("lmatch", self.cmd_live, aliases=("partida", "live", "game", "enpartida"),
                  help="partida de LoL en curso", cooldown=10)
-        self.add("valorant", self.cmd_valorant, aliases=("val", "vrank"),
+        self.add("vrank", self.cmd_valorant, aliases=("valorant", "val"),
                  help="rango de Valorant", cooldown=10)
         self.add("vmatch", self.cmd_vmatch, aliases=("ultima", "lastmatch"),
                  help="ultima partida de Valorant", cooldown=15)
