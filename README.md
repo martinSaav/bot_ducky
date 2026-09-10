@@ -382,6 +382,20 @@ participantes con más mensajes. Este MVP no recupera mensajes anteriores al
 arranque ni usa todavía un LLM; esas son las siguientes capas para PostgreSQL
 y el resumen semántico.
 
+Para activar el resumen semántico, configurá `LLM_API_KEY`. `!resumen` usará
+los mensajes persistidos en PostgreSQL cuando estén disponibles y volverá al
+resumen básico si la API falla o la clave está vacía. El cliente usa una API
+compatible con OpenAI, timeout de 45 segundos y reintentos limitados.
+
+Nightbot y la cuenta del propio bot se excluyen automáticamente del historial.
+Podés agregar otras cuentas en `CHAT_IGNORED_AUTHORS`, separadas por comas.
+
+Para persistir los mensajes entre reinicios, configurá `DATABASE_URL` con una
+base PostgreSQL que tenga `pgvector` instalado. El worker guarda los mensajes
+en segundo plano y no bloquea la conexión de Twitch. El esquema inicial está
+en `db/001_chat_history.sql`; los embeddings todavía se incorporarán en una
+segunda etapa.
+
 Cuando detecta una partida de League of Legends o VALORANT, el bot crea una
 prediction de Twitch con las opciones `Gana` y `Pierde`. No crea otra mientras
 haya una activa y dura 5 minutos por defecto. En LoL confirma la partida contra

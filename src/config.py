@@ -68,6 +68,18 @@ class Config:
     chat_control_host = _str("CHAT_CONTROL_HOST", "127.0.0.1")
     chat_control_port = _int("CHAT_CONTROL_PORT", 8790)
 
+    # --- historial persistente del chat ---
+    database_url = _str("DATABASE_URL")
+    llm_api_key = _str("LLM_API_KEY")
+    llm_model = _str("LLM_MODEL", "gpt-4o-mini")
+    llm_base_url = _str("LLM_BASE_URL", "https://api.openai.com/v1")
+    llm_max_messages = _int("LLM_MAX_MESSAGES", 300)
+    chat_ignored_authors = {
+        author.strip().lower()
+        for author in _str("CHAT_IGNORED_AUTHORS", "nightbot").split(",")
+        if author.strip()
+    }
+
     # --- Riot ---
     riot_api_key = _str("RIOT_API_KEY")
     riot_id = _str("RIOT_ID")

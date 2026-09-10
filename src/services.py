@@ -8,12 +8,14 @@ import aiohttp
 
 from .category import CategoryResolver
 from .chat_history import ChatHistory
+from .chat_history_db import PostgresChatHistory
 from .gamesource import GameArbiter
 from .riot.lol import LolClient
 from .riot.valorant import ValorantClient
 from .storage import JsonStore
 from .twitch.auth import TwitchAuth
 from .twitch.helix import Helix
+from .llm_summary import LlmSummary
 
 if TYPE_CHECKING:  # evita imports circulares en runtime
     from .discord_presence.bot import PresenceBot
@@ -33,6 +35,8 @@ class Services:
     valorant: ValorantClient
     broadcaster_id: str
     history: ChatHistory
+    database_history: "PostgresChatHistory | None" = None
+    llm_summary: "LlmSummary | None" = None
     chat: "ChatClient | None" = None
     presence: "PresenceBot | None" = None
     clips: Any = None

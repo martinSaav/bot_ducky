@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
 from ..config import cfg
+from ..chat_history import HistoryEntry
 from ..riot.lol import RiotError
 from ..riot.valorant import ValorantError
 from ..services import Services
@@ -153,14 +154,35 @@ class Registry:
         if seconds is None:
             return "Uso: !resumen [10m|1h|2h]"
         messages = ctx.svc.history.since(seconds)
+        if ctx.svc.database_history is not None:
+            persisted = await ctx.svc.database_history.recent(
+                seconds, limit=ctx.svc.llm_summary.max_messages if ctx.svc.llm_summary else 2_000
+            )
+            if persisted:
+                messages = [
+                    HistoryEntry(
+                        author_id="",
+                        display_name=message["display_name"],
+                        text=message["text"],
+                        created_at=message["created_at"],
+                    )
+                    for message in persisted
+                ]
         if not messages:
             return "No hay mensajes guardados en ese período."
+
+        game = self._current_game(ctx)
+        if ctx.svc.llm_summary is not None and ctx.svc.llm_summary.configured:
+            summary = await ctx.svc.llm_summary.summarize(
+                messages, game, self._format_window(seconds)
+            )
+            if summary:
+                return summary
 
         topics = ctx.svc.history.topic_words(messages)
         participants = ctx.svc.history.participants(messages)
         topic_text = ", ".join(topics) if topics else "no se detectaron temas claros"
         people_text = ", ".join(f"{name} ({count})" for name, count in participants)
-        game = self._current_game(ctx)
         return (
             f"Resumen ({self._format_window(seconds)}): "
             f"{len(messages)} mensajes. "

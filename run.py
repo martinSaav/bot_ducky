@@ -19,6 +19,8 @@ from src import logging_setup
 from src.agent_server import AgentServer
 from src.category import CategoryResolver
 from src.chat_history import ChatHistory
+from src.chat_history_db import PostgresChatHistory
+from src.llm_summary import LlmSummary
 from src.chat_control import ChatControlServer
 from src.clips.pipeline import ClipPipeline
 from src.commands.registry import Registry
@@ -97,7 +99,30 @@ async def main() -> int:
         resolver = CategoryResolver(helix, state)
         lol = LolClient(session)
         valorant = ValorantClient(session)
-        history = ChatHistory()
+        history = ChatHistory(
+            ignored_authors=cfg.chat_ignored_authors | {cfg.bot_login.lower()}
+        )
+        database_history: PostgresChatHistory | None = None
+        if cfg.database_url:
+            try:
+                database_history = PostgresChatHistory(
+                    cfg.database_url,
+                    ignored_authors=cfg.chat_ignored_authors | {cfg.bot_login.lower()},
+                )
+                await database_history.start()
+                log.info("Historial PostgreSQL: activo")
+            except Exception:  # noqa: BLE001 - database is optional
+                database_history = None
+                log.exception("Historial PostgreSQL: apagado; el bot seguira en memoria")
+        llm_summary = LlmSummary(
+            session,
+            cfg.llm_api_key,
+            cfg.llm_model,
+            cfg.llm_base_url,
+            cfg.llm_max_messages,
+        )
+        if llm_summary.configured:
+            log.info("Resumen LLM: activo (%s)", cfg.llm_model)
         arbiter = GameArbiter(
             helix, resolver, broadcaster_id, state=state, lol=lol, valorant=valorant,
         )
@@ -113,6 +138,8 @@ async def main() -> int:
             valorant=valorant,
             broadcaster_id=broadcaster_id,
             history=history,
+            database_history=database_history,
+            llm_summary=llm_summary,
         )
         tasks: dict[str, asyncio.Task] = {}
         stop = asyncio.Event()
@@ -123,6 +150,8 @@ async def main() -> int:
             registry = Registry(svc)
             async def on_chat_message(message: ChatMessage) -> None:
                 history.add(message)
+                if database_history is not None:
+                    database_history.enqueue(message)
                 await registry.dispatch(message)
 
             chat = ChatClient(
@@ -211,6 +240,8 @@ async def main() -> int:
             await chat_control.stop()
         if svc.presence:
             await svc.presence.close()
+        if database_history is not None:
+            await database_history.stop()
         for task in tasks.values():
             task.cancel()
         await asyncio.gather(*tasks.values(), return_exceptions=True)

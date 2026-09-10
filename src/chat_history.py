@@ -27,10 +27,17 @@ class ChatHistory:
         "muy", "más", "mas", "sus", "son", "fue", "era", "hay", "está",
     }
 
-    def __init__(self, max_messages: int = 10_000):
+    def __init__(
+        self,
+        max_messages: int = 10_000,
+        ignored_authors: set[str] | None = None,
+    ):
         self._messages: deque[HistoryEntry] = deque(maxlen=max_messages)
+        self._ignored_authors = {author.lower() for author in (ignored_authors or set())}
 
     def add(self, message: ChatMessage) -> None:
+        if message.author.lower() in self._ignored_authors:
+            return
         text = " ".join(message.text.split())
         if not text:
             return
