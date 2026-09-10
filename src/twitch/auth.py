@@ -17,7 +17,11 @@ AUTH_BASE = "https://id.twitch.tv/oauth2"
 
 # Scopes por rol. El broadcaster autoriza una vez y queda guardado.
 SCOPES = {
-    "broadcaster": ["channel:manage:broadcast", "clips:edit"],
+    "broadcaster": [
+        "channel:manage:broadcast",
+        "channel:manage:predictions",
+        "clips:edit",
+    ],
     "bot": ["chat:read", "chat:edit"],
 }
 

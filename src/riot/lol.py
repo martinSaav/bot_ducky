@@ -157,12 +157,11 @@ class LolClient:
         if cached:
             return cached
 
-        puuid = await self.puuid(target)
-        game = await self._get(
-            cfg.riot_platform, f"/lol/spectator/v5/active-games/by-summoner/{puuid}"
-        )
+        game = await self.active_game(target)
         if not game:
             return self._live.set(target.lower(), f"{target} no esta en partida ahora mismo.")
+
+        puuid = await self.puuid(target)
 
         champs = await self.champions()
         participants = game.get("participants", [])
@@ -186,3 +185,42 @@ class LolClient:
             f"(va {elapsed}). Enemigos: {rivals_txt}"
         )
         return self._live.set(target.lower(), text)
+
+    async def active_game(self, riot_id: str | None = None) -> dict[str, Any] | None:
+        """Devuelve los datos de la partida activa, o None si no esta jugando."""
+        puuid = await self.puuid(riot_id)
+        return await self._get(
+            cfg.riot_platform, f"/lol/spectator/v5/active-games/by-summoner/{puuid}"
+        )
+
+    async def active_game_id(self, riot_id: str | None = None) -> str | None:
+        game = await self.active_game(riot_id)
+        game_id = (game or {}).get("gameId")
+        return str(game_id) if game_id is not None else None
+
+    async def match_won(self, game_id: str, riot_id: str | None = None) -> bool | None:
+        """Devuelve si la cuenta gano el gameId, o None si aun no aparece."""
+        puuid = await self.puuid(riot_id)
+        ids = await self._get(
+            cfg.riot_region,
+            f"/lol/match/v5/matches/by-puuid/{puuid}/ids?start=0&count=10",
+        )
+        for match_id in ids or []:
+            match = await self._get(cfg.riot_region, f"/lol/match/v5/matches/{match_id}")
+            info = (match or {}).get("info") or {}
+            if str(info.get("gameId")) != str(game_id):
+                continue
+            participant = next(
+                (p for p in info.get("participants", []) if p.get("puuid") == puuid),
+                None,
+            )
+            if participant is None:
+                return None
+            team_id = participant.get("teamId")
+            team = next(
+                (team for team in info.get("teams", []) if team.get("teamId") == team_id),
+                None,
+            )
+            won = (team or {}).get("win")
+            return won if isinstance(won, bool) else None
+        return None

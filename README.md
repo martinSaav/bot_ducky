@@ -133,6 +133,10 @@ Se autoriza **dos veces**, con dos cuentas distintas:
 python tools/auth_twitch.py broadcaster
 ```
 
+El broadcaster también necesita el scope `channel:manage:predictions` para
+crear predictions. Si agregás esta función a una instalación existente, corré
+el comando anterior otra vez para renovar ese permiso.
+
 ```bash
 python tools/auth_twitch.py bot
 ```
@@ -357,6 +361,17 @@ python tools/chat_console.py
 Escribí el mensaje y presioná Enter para enviarlo al canal. `:quit` o `:salir`
 cierran solamente esa consola. El cliente usa la conexión IRC existente y su
 rate limit, así que no abre otra sesión de Twitch.
+
+Cuando detecta una partida de League of Legends o VALORANT, el bot crea una
+prediction de Twitch con las opciones `Gana` y `Pierde`. No crea otra mientras
+haya una activa y dura 5 minutos por defecto. En LoL confirma la partida contra
+Riot y usa su `gameId` como clave idempotente. En Valorant usa una sesión
+persistida del detector, porque la API de HenrikDev configurada en este proyecto
+no expone una partida activa con un ID comparable. La resolución sigue siendo
+automática cuando la API devuelve un resultado explícito: anuncia `Partida
+ganada` o `Partida perdida` y resuelve la prediction correspondiente. LoL se
+vincula por `gameId`; en Valorant se consulta la partida más reciente, por lo
+que conviene revisar el log si HenrikDev tarda en publicarla.
 
 Corrida manual de clips, sin esperar al horario:
 

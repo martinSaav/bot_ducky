@@ -93,8 +93,11 @@ async def main() -> int:
         )
 
         resolver = CategoryResolver(helix, state)
-        arbiter = GameArbiter(helix, resolver, broadcaster_id)
-
+        lol = LolClient(session)
+        valorant = ValorantClient(session)
+        arbiter = GameArbiter(
+            helix, resolver, broadcaster_id, state=state, lol=lol, valorant=valorant,
+        )
         svc = Services(
             session=session,
             tokens=tokens,
@@ -103,11 +106,10 @@ async def main() -> int:
             helix=helix,
             resolver=resolver,
             arbiter=arbiter,
-            lol=LolClient(session),
-            valorant=ValorantClient(session),
+            lol=lol,
+            valorant=valorant,
             broadcaster_id=broadcaster_id,
         )
-
         tasks: dict[str, asyncio.Task] = {}
         stop = asyncio.Event()
         chat_control: ChatControlServer | None = None

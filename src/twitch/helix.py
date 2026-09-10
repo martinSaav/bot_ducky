@@ -161,6 +161,58 @@ class Helix:
         return data[0] if data else None
 
     # ------------------------------------------------------------------
+    # predicciones
+    # ------------------------------------------------------------------
+    async def get_predictions(self, broadcaster_id: str) -> list[dict[str, Any]]:
+        body = await self.request(
+            "GET", "/predictions", params={"broadcaster_id": broadcaster_id},
+            role="broadcaster",
+        )
+        return (body or {}).get("data") or []
+
+    async def create_prediction(
+        self,
+        broadcaster_id: str,
+        *,
+        title: str,
+        outcomes: list[str],
+        prediction_window: int,
+    ) -> dict[str, Any]:
+        body = await self.request(
+            "POST", "/predictions",
+            params={"broadcaster_id": broadcaster_id},
+            json_body={
+                "title": title[:60],
+                "outcomes": [{"title": outcome[:25]} for outcome in outcomes[:10]],
+                "prediction_window": max(30, min(prediction_window, 1800)),
+            },
+            role="broadcaster",
+        )
+        data = (body or {}).get("data") or []
+        return data[0] if data else {}
+
+    async def resolve_prediction(
+        self,
+        broadcaster_id: str,
+        *,
+        prediction_id: str,
+        winning_outcome_id: str,
+    ) -> None:
+        """Resuelve una prediction con el outcome ganador."""
+        await self.request(
+            "PATCH", "/predictions",
+            params={
+                "broadcaster_id": broadcaster_id,
+                "id": prediction_id,
+            },
+            json_body={
+                "status": "RESOLVED",
+                "winning_outcome_id": winning_outcome_id,
+            },
+            role="broadcaster",
+        )
+
+    # ------------------------------------------------------------------
     # clips
     # ------------------------------------------------------------------
     async def get_clips(

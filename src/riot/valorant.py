@@ -146,6 +146,60 @@ class ValorantClient:
             return f"No encontre partidas recientes de {target}."
         return self._match.set(target.lower(), f"{target} | {text}")
 
+    async def last_match_won(self, riot_id: str | None = None) -> bool | None:
+        """Devuelve el resultado explicito de la partida mas reciente."""
+        name, tag = self._target(riot_id)
+        region = cfg.valorant_region
+        body = await self._get(
+            f"/v4/matches/{region}/{PLATFORM}/{name}/{tag}", params={"size": 1}
+        )
+        result = self._match_result_v4(body, name, tag) if body else None
+        if result is not None:
+            return result
+        body = await self._get(
+            f"/v3/matches/{region}/{name}/{tag}", params={"size": 1}
+        )
+        return self._match_result_v3(body, name, tag) if body else None
+
+    @staticmethod
+    def _match_result_v4(body: Any, name: str, tag: str) -> bool | None:
+        matches = _dig(body, "data", default=[])
+        if not isinstance(matches, list) or not matches:
+            return None
+        match = matches[0]
+        me = next(
+            (p for p in (match.get("players") or [])
+             if str(p.get("name", "")).lower() == name.lower()
+             and str(p.get("tag", "")).lower() == tag.lower()),
+            None,
+        )
+        if me is None:
+            return None
+        team_id = me.get("team_id")
+        won = next(
+            (t.get("won") for t in (match.get("teams") or []) if t.get("team_id") == team_id),
+            None,
+        )
+        return won if isinstance(won, bool) else None
+
+    @staticmethod
+    def _match_result_v3(body: Any, name: str, tag: str) -> bool | None:
+        matches = _dig(body, "data", default=[])
+        if not isinstance(matches, list) or not matches:
+            return None
+        match = matches[0]
+        me = next(
+            (p for p in _dig(match, "players", "all_players", default=[])
+             if str(p.get("name", "")).lower() == name.lower()
+             and str(p.get("tag", "")).lower() == tag.lower()),
+            None,
+        )
+        if me is None:
+            return None
+        team = str(me.get("team", "")).lower()
+        won = _dig(match, "teams", team, "has_won")
+        return won if isinstance(won, bool) else None
+
     @staticmethod
     def _fmt(agent: str, kills: int, deaths: int, assists: int,
              map_name: str, mode: str, result: str) -> str:

@@ -54,6 +54,8 @@ class Config:
     autocat_only_when_live = _bool("AUTOCAT_ONLY_WHEN_LIVE", False)
     autocat_idle_category = _str("AUTOCAT_IDLE_CATEGORY", "Just Chatting")
     autocat_announce = _bool("AUTOCAT_ANNOUNCE", True)
+    prediction_enabled = _bool("PREDICTION_ENABLED", True)
+    prediction_window = _int("PREDICTION_WINDOW_SECONDS", 300)
 
     # --- agente de escritorio (Rust) ---
     agent_token = _str("AGENT_TOKEN")
