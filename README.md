@@ -406,11 +406,11 @@ prediction de Twitch con las opciones `Gana` y `Pierde`. No crea otra mientras
 haya una activa y dura 5 minutos por defecto. En LoL confirma la partida contra
 Riot y usa su `gameId` como clave idempotente. En Valorant usa una sesión
 persistida del detector, porque la API de HenrikDev configurada en este proyecto
-no expone una partida activa con un ID comparable. Por eso Valorant inicia la
-prediction basándose en la detección de `VALORANT`, no en una confirmación de
-partida: puede dispararse si el juego está abierto en el menú. Al finalizar,
-consulta la última partida publicada para anunciar `Partida ganada` o `Partida
-perdida`; LoL se vincula con mayor precisión por `gameId`.
+no expone una partida activa con un ID comparable. Por eso Valorant no inicia
+predictions automáticamente al detectar que el juego está abierto. Para una
+partida real usá `!vgame`, y al terminar `!vwin` o `!vloss`; así nunca se usa
+una partida vieja para resolver el resultado. LoL se vincula automáticamente
+con mayor precisión por `gameId`.
 
 Corrida manual de clips, sin esperar al horario:
 

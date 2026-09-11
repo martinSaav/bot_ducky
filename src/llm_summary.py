@@ -72,7 +72,7 @@ class LlmSummary:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        for attempt in range(3):
+        for attempt in range(5):
             try:
                 async with self.session.post(
                     f"{self.base_url}/chat/completions",
@@ -82,19 +82,31 @@ class LlmSummary:
                 ) as response:
                     body: Any = await response.json(content_type=None)
                     if response.status == 429 or response.status >= 500:
-                        raise _RetryableLlmError(response.status)
+                        raise _RetryableLlmError(response.status, body)
                     if response.status >= 400:
                         log.warning("LLM summary failed with HTTP %s: %s", response.status, body)
                         return None
                     content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
                     return content.strip() if isinstance(content, str) and content.strip() else None
-            except (_RetryableLlmError, asyncio.TimeoutError, aiohttp.ClientError):
-                if attempt == 2:
-                    log.exception("LLM summary failed after retries")
+            except _RetryableLlmError as exc:
+                if attempt == 4:
+                    log.warning(
+                        "LLM summary failed after retries: HTTP %s: %s",
+                        exc.status,
+                        exc.body,
+                    )
+                    return None
+                await asyncio.sleep(2**attempt)
+            except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
+                if attempt == 4:
+                    log.warning("LLM summary failed after retries: %s", exc)
                     return None
                 await asyncio.sleep(2**attempt)
         return None
 
 
 class _RetryableLlmError(RuntimeError):
-    pass
+    def __init__(self, status: int, body: Any):
+        super().__init__(f"HTTP {status}")
+        self.status = status
+        self.body = body

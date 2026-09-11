@@ -126,6 +126,8 @@ class GameArbiter:
 
         active_prediction = self.state.get("prediction_active") if self.state else None
         previous_game = str((active_prediction or {}).get("game", ""))
+        if active_prediction and "league of legends" in previous_game:
+            await self._check_lol_prediction_finished(active_prediction)
         if active_prediction and (
             not game_name or previous_game not in (game_name or "").lower()
         ):
@@ -320,18 +322,11 @@ class GameArbiter:
                 return None
             return f"lol:{game_id}"
 
-        if self.state is None:
-            return f"valorant:{normalized_game}"
-        session = self.state.get("prediction_session") or {}
-        if session.get("game") == normalized_game and session.get("key"):
-            return str(session["key"])
-        key = f"valorant:auto:{normalized_game}:{time.time_ns()}"
-        await self.state.set("prediction_session", {"game": normalized_game, "key": key})
-        log.warning(
-            "Prediction automatica de Valorant: no hay API de partida activa; "
-            "se basa en la deteccion del juego"
+        log.info(
+            "No creo prediction automatica de Valorant: Discord confirma el "
+            "juego abierto, pero no una partida activa verificable"
         )
-        return key
+        return None
 
     def _schedule_prediction_result(self) -> None:
         if self.state is None or not self.state.get("prediction_active"):
@@ -380,6 +375,20 @@ class GameArbiter:
             if self.lol is None or not match_key.startswith("lol:"):
                 return None
             return await self.lol.match_won(match_key.removeprefix("lol:"))
-        if "valorant" in game and self.valorant is not None:
-            return await self.valorant.last_match_won()
+        if "valorant" in game:
+            log.info(
+                "No resuelvo automaticamente la prediction de Valorant: "
+                "requiere !vwin o !vloss"
+            )
+            return None
         return None
+
+    async def _check_lol_prediction_finished(self, prediction: dict[str, Any]) -> None:
+        """Detect a finished LoL game even when Discord still shows LoL."""
+        match_key = str(prediction.get("match_key", ""))
+        if self.lol is None or not match_key.startswith("lol:"):
+            return
+        active_game_id = await self.lol.active_game_id()
+        if active_game_id is None:
+            log.info("La partida de LoL ya no esta activa; consultando su resultado")
+            self._schedule_prediction_result()
