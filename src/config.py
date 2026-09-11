@@ -74,6 +74,9 @@ class Config:
     llm_model = _str("LLM_MODEL", "gpt-4o-mini")
     llm_base_url = _str("LLM_BASE_URL", "https://api.openai.com/v1")
     llm_max_messages = _int("LLM_MAX_MESSAGES", 300)
+    embedding_model = _str("EMBEDDING_MODEL", "models/text-embedding-004")
+    embedding_batch_size = _int("EMBEDDING_BATCH_SIZE", 20)
+
     chat_ignored_authors = {
         author.strip().lower()
         for author in _str("CHAT_IGNORED_AUTHORS", "nightbot").split(",")

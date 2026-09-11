@@ -20,6 +20,7 @@ import aiohttp
 from src import logging_setup
 from src.agent_server import AgentServer
 from src.category import CategoryResolver
+from src.chat_embeddings import EmbeddingWorker
 from src.chat_history import ChatHistory
 from src.chat_history import HistoryEntry
 from src.chat_history_db import PostgresChatHistory
@@ -225,6 +226,31 @@ async def main() -> int:
         )
         if llm_summary.configured:
             log.info("Resumen LLM: activo (%s)", cfg.llm_model)
+
+        # --- embeddings (opcional: requiere DB + LLM) ----------------------
+        embedding_worker: EmbeddingWorker | None = None
+        if database_history is not None and cfg.llm_api_key:
+            try:
+                embedding_worker = EmbeddingWorker(
+                    pool=database_history._pool,  # noqa: SLF001
+                    session=session,
+                    api_key=cfg.llm_api_key,
+                    model=cfg.embedding_model,
+                    base_url=cfg.llm_base_url,
+                    batch_size=cfg.embedding_batch_size,
+                )
+                await embedding_worker.start()
+                log.info(
+                    "Embeddings: activo (%s, batch=%d)",
+                    cfg.embedding_model, cfg.embedding_batch_size,
+                )
+                database_history._embedding_worker = embedding_worker  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                embedding_worker = None
+                log.exception("Embeddings: apagado por error al iniciar")
+        elif not cfg.llm_api_key:
+            log.info("Embeddings: apagado (falta LLM_API_KEY)")
+
         arbiter = GameArbiter(
             helix, resolver, broadcaster_id, state=state, lol=lol, valorant=valorant,
         )
@@ -241,6 +267,7 @@ async def main() -> int:
             broadcaster_id=broadcaster_id,
             history=history,
             database_history=database_history,
+            embeddings=embedding_worker,
             llm_summary=llm_summary,
         )
         tasks: dict[str, asyncio.Task] = {}
@@ -351,6 +378,8 @@ async def main() -> int:
             await chat_control.stop()
         if svc.presence:
             await svc.presence.close()
+        if embedding_worker is not None:
+            await embedding_worker.stop()
         if database_history is not None:
             await database_history.stop()
         for task in tasks.values():

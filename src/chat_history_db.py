@@ -4,8 +4,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from .twitch.chat import ChatMessage
+
+if TYPE_CHECKING:
+    from .chat_embeddings import EmbeddingWorker
 
 log = logging.getLogger("chat_history_db")
 
@@ -43,12 +47,14 @@ class PostgresChatHistory:
         database_url: str,
         queue_size: int = 2_000,
         ignored_authors: set[str] | None = None,
+        embedding_worker: "EmbeddingWorker | None" = None,
     ):
         self.database_url = database_url
         self._queue: asyncio.Queue[ChatMessage | None] = asyncio.Queue(maxsize=queue_size)
         self._ignored_authors = {author.lower() for author in (ignored_authors or set())}
         self._pool = None
         self._worker: asyncio.Task[None] | None = None
+        self._embedding_worker = embedding_worker
 
     async def start(self) -> None:
         import asyncpg
@@ -75,22 +81,26 @@ class PostgresChatHistory:
                 self._queue.task_done()
                 return
             try:
-                await self._insert(message)
+                message_id = await self._insert(message)
+                if message_id is not None and self._embedding_worker is not None:
+                    self._embedding_worker.enqueue(message_id, message.text)
             except Exception:  # noqa: BLE001 - persistence must not kill the bot
                 log.exception("Could not persist chat message %s", message.message_id)
             finally:
                 self._queue.task_done()
 
-    async def _insert(self, message: ChatMessage) -> None:
+    async def _insert(self, message: ChatMessage) -> int | None:
+        """Inserta el mensaje y devuelve el id generado, o None si ya existía."""
         if self._pool is None:
-            return
+            return None
         async with self._pool.acquire() as connection:
-            await connection.execute(
+            row = await connection.fetchrow(
                 """
                 INSERT INTO chat_messages
                     (twitch_message_id, author_id, author_login, content, created_at)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (twitch_message_id) DO NOTHING
+                RETURNING id
                 """,
                 message.message_id,
                 message.author_id,
@@ -98,6 +108,7 @@ class PostgresChatHistory:
                 message.text,
                 datetime.now(timezone.utc),
             )
+        return row["id"] if row else None
 
     async def recent(self, seconds: int, limit: int = 2_000) -> list[dict[str, str]]:
         if self._pool is None:
