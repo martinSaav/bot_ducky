@@ -163,7 +163,7 @@ class ChatClient:
             try:
                 await self.send_raw(f"{prefix}PRIVMSG #{self.channel} :{chunk}")
             except ConnectionError:
-                log.warning("Mensaje descartado, chat desconectado: %r", chunk[:60])
+                log.warning("Message discarded, chat disconnected: %r", chunk[:60])
                 return
             reply_to = None  # solo el primer trozo responde
 
@@ -187,7 +187,7 @@ class ChatClient:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - el loop nunca debe morir
-                log.warning("Chat caido (%s). Reconectando en %.0fs", exc, backoff)
+                log.warning("Chat dropped (%s). Reconnecting in %.0fs", exc, backoff)
             finally:
                 self._connected.clear()
                 self._ws = None
@@ -203,7 +203,7 @@ class ChatClient:
             await self.send_raw("CAP REQ :twitch.tv/tags twitch.tv/commands")
             await self.send_raw(f"PASS oauth:{token}")
             await self.send_raw(f"NICK {self.nick}")
-            log.info("Conectando al chat como %s...", self.nick)
+            log.info("Connecting to chat as %s...", self.nick)
 
             async for msg in ws:
                 if msg.type is aiohttp.WSMsgType.TEXT:
@@ -214,7 +214,7 @@ class ChatClient:
                     break
         if self._auth_failed:
             self._auth_failed = False
-            log.info("Refrescando token del bot tras fallo de login")
+            log.info("Refreshing bot token after login failure")
             await self.auth.refresh("bot")
 
     async def _handle(self, line: str) -> None:
@@ -229,7 +229,7 @@ class ChatClient:
             return
 
         if command == "JOIN" and prefix.split("!")[0].lower() == self.nick:
-            log.info("Conectado al chat de #%s", self.channel)
+            log.info("Connected to #%s chat", self.channel)
             self._connected.set()
             return
 
@@ -241,7 +241,7 @@ class ChatClient:
             return
 
         if command == "RECONNECT":
-            log.info("Twitch pidio RECONNECT")
+            log.info("Twitch requested RECONNECT")
             ws = self._ws
             if ws:
                 await ws.close()
@@ -274,4 +274,4 @@ class ChatClient:
             try:
                 await self.on_message(message)
             except Exception:  # noqa: BLE001
-                log.exception("Error procesando mensaje de %s", message.author)
+                log.exception("Error processing message from %s", message.author)

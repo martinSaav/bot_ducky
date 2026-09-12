@@ -63,7 +63,7 @@ class Helix:
 
             if status == 401 and _attempt == 0 and role != "app":
                 # El token pudo invalidarse antes de su expiracion nominal.
-                log.warning("401 en %s, refrescando token de '%s'", path, role)
+                log.warning("401 on %s, refreshing token for '%s'", path, role)
                 await self.auth.refresh(role)
                 return await self.request(
                     method, path, params=params, json_body=json_body,
@@ -78,7 +78,7 @@ class Helix:
                         wait = max(1.0, float(reset) - time.time())
                     except ValueError:
                         pass
-                log.warning("Rate limit en %s, esperando %.1fs", path, wait)
+                log.warning("Rate limit on %s, waiting %.1fs", path, wait)
                 await asyncio.sleep(min(wait, 60))
                 return await self.request(
                     method, path, params=params, json_body=json_body,
@@ -87,7 +87,7 @@ class Helix:
 
             if status >= 500 and _attempt < 3:
                 wait = 2 ** _attempt
-                log.warning("HTTP %s en %s, reintento en %ss", status, path, wait)
+                log.warning("HTTP %s on %s, retrying in %ss", status, path, wait)
                 await asyncio.sleep(wait)
                 return await self.request(
                     method, path, params=params, json_body=json_body,

@@ -122,7 +122,7 @@ class TwitchAuth:
                 "scopes": body.get("scope", entry.get("scopes", [])),
             },
         )
-        log.info("Token de '%s' refrescado", role)
+        log.info("Token for '%s' refreshed", role)
         return updated["access_token"]
 
     # ------------------------------------------------------------------

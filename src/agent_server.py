@@ -42,7 +42,7 @@ class AgentServer:
 
     async def handle_game(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
-            log.warning("Reporte rechazado desde %s: token invalido", request.remote)
+            log.warning("Rejected report from %s: invalid token", request.remote)
             return web.json_response({"error": "token invalido"}, status=401)
 
         if request.content_length and request.content_length > MAX_BODY:
@@ -65,7 +65,7 @@ class AgentServer:
         host = data.get("host")
         if isinstance(host, str) and host != self._last_host:
             log.info(
-                "Agente v%s conectado desde %s",
+                "Agent v%s connected from %s",
                 data.get("agent_version", "?"), host[:60],
             )
             self._last_host = host
@@ -88,7 +88,7 @@ class AgentServer:
         site = web.TCPSite(self._runner, cfg.agent_host, cfg.agent_port)
         await site.start()
         log.info(
-            "Escuchando al agente en http://%s:%s/game", cfg.agent_host, cfg.agent_port
+            "Listening to agent on http://%s:%s/game", cfg.agent_host, cfg.agent_port
         )
 
     async def stop(self) -> None:

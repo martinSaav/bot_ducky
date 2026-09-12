@@ -37,11 +37,11 @@ class CategoryResolver:
         try:
             raw = json.loads(cfg.game_map_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            log.warning("No se pudo leer %s (%s); sigo sin mapa manual", cfg.game_map_file, exc)
+            log.warning("Could not read %s (%s); continuing without manual map", cfg.game_map_file, exc)
             raw = {}
         self._map = {_norm(k): v for k, v in (raw.get("map") or {}).items()}
         self._ignore = {_norm(x) for x in (raw.get("ignore") or [])}
-        log.info("game_map: %d alias, %d ignorados", len(self._map), len(self._ignore))
+        log.info("game_map: %d aliases, %d ignored", len(self._map), len(self._ignore))
 
     # ------------------------------------------------------------------
     def is_ignored(self, name: str) -> bool:
@@ -72,9 +72,9 @@ class CategoryResolver:
         # actualizacion de presencia de un programa que no es un juego.
         await self.state.update("game_cache", {key: game or False})
         if game:
-            log.info("Categoria resuelta: %r -> %s (id %s)", name, game["name"], game["id"])
+            log.info("Category resolved: %r -> %s (id %s)", name, game["name"], game["id"])
         else:
-            log.info("Sin categoria de Twitch para %r", name)
+            log.info("No Twitch category found for %r", name)
         return game
 
     async def _lookup(self, target: str) -> dict[str, str] | None:
@@ -95,7 +95,7 @@ class CategoryResolver:
         if best and best[0] >= MATCH_THRESHOLD:
             return {"id": str(best[1]["id"]), "name": best[1]["name"]}
         if best:
-            log.debug("Mejor candidato para %r fue %r (%.2f), por debajo del umbral",
+            log.debug("Best candidate for %r was %r (%.2f), below threshold",
                       target, best[1]["name"], best[0])
         return None
 
@@ -104,11 +104,11 @@ class CategoryResolver:
         """Cambia la categoria del canal. Devuelve False si ya estaba puesta."""
         current = await self.helix.get_channel(broadcaster_id)
         if current and str(current.get("game_id")) == str(game["id"]):
-            log.debug("El canal ya esta en %s", game["name"])
+            log.debug("Channel is already set to %s", game["name"])
             return False
         if cfg.autocat_dry_run:
-            log.info("[DRY-RUN] Pondria la categoria en %s", game["name"])
+            log.info("[DRY-RUN] Would set category to %s", game["name"])
             return True
         await self.helix.modify_channel(broadcaster_id, game_id=game["id"])
-        log.info("Categoria del canal actualizada a %s", game["name"])
+        log.info("Channel category updated to %s", game["name"])
         return True

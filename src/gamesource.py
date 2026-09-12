@@ -89,7 +89,7 @@ class GameArbiter:
         if previous is not None and previous.game == game and not previous.stale and not force:
             return  # latido sin novedad: no reprogramamos nada
 
-        log.debug("Fuente '%s' reporta %r", source, game)
+        log.debug("Source '%s' reports %r", source, game)
         self._schedule(self._debounce_for(source))
 
     # ------------------------------------------------------------------
@@ -118,7 +118,7 @@ class GameArbiter:
         except asyncio.CancelledError:
             pass
         except Exception:  # noqa: BLE001 - nunca debe matar la task
-            log.exception("Fallo aplicando la categoria")
+            log.exception("Failed to apply category")
 
     # ------------------------------------------------------------------
     async def apply(self) -> None:
@@ -143,25 +143,25 @@ class GameArbiter:
                 await self.state.set("prediction_session", None)
 
         if not self.enabled:
-            log.info("Auto-categorizador apagado; ignoro %r", game_name)
+            log.info("Auto-categorizer disabled; ignoring %r", game_name)
             return
 
         if cfg.autocat_only_when_live:
             stream = await self.helix.get_stream(cfg.twitch_channel)
             if not stream:
-                log.info("Canal offline y AUTOCAT_ONLY_WHEN_LIVE=true; no toco la categoria")
+                log.info("Channel offline and AUTOCAT_ONLY_WHEN_LIVE=true; leaving category unchanged")
                 return
 
         target = game_name or cfg.autocat_idle_category
         if not target:
             return
         if game_name and self.resolver.is_ignored(game_name):
-            log.debug("%r esta en la lista de ignorados", game_name)
+            log.debug("%r is in the ignore list", game_name)
             return
 
         game = await self.resolver.resolve(target)
         if not game:
-            log.info("No encontre categoria de Twitch para %r; dejo el canal como esta", target)
+            log.info("No Twitch category found for %r; leaving channel unchanged", target)
             return
         if game["name"] == self._last_applied:
             await self._maybe_start_prediction(game_name)
@@ -169,7 +169,7 @@ class GameArbiter:
 
         changed = await self.resolver.apply(self.broadcaster_id, game)
         self._last_applied = game["name"]
-        log.info("Categoria %s (fuente: %s)", game["name"], source or "?")
+        log.info("Category %s (source: %s)", game["name"], source or "?")
 
         await self._maybe_start_prediction(game_name)
 
@@ -220,7 +220,7 @@ class GameArbiter:
                     },
                 )
                 await self.state.set("prediction_created_key", match_key)
-            log.info("Prediction creada para %s (id %s)", game_name, prediction.get("id", "?"))
+            log.info("Prediction created for %s (id %s)", game_name, prediction.get("id", "?"))
             if self.announce and cfg.autocat_announce:
                 await self.announce(
                     cfg.say_as(
@@ -229,7 +229,7 @@ class GameArbiter:
                     )
                 )
         except Exception:  # noqa: BLE001 - una prediction no debe apagar el arbitro
-            log.exception("No se pudo crear la prediction para %s", game_name)
+            log.exception("Failed to create prediction for %s", game_name)
 
     async def confirm_valorant_prediction(self) -> str:
         """Inicia una prediction de Valorant tras confirmacion manual."""
@@ -314,16 +314,16 @@ class GameArbiter:
     async def _prediction_match_key(self, normalized_game: str) -> str | None:
         if "league of legends" in normalized_game:
             if self.lol is None or not self.lol.configured:
-                log.info("No creo prediction de LoL: falta validar la partida activa")
+                log.info("Not creating LoL prediction: active match validation missing")
                 return None
             game_id = await self.lol.active_game_id()
             if not game_id:
-                log.info("No creo prediction de LoL: la cuenta no esta en partida")
+                log.info("Not creating LoL prediction: account is not in a match")
                 return None
             return f"lol:{game_id}"
 
         log.info(
-            "No creo prediction automatica de Valorant: Discord confirma el "
+            "Not creating automatic Valorant prediction: Discord confirms the "
             "juego abierto, pero no una partida activa verificable"
         )
         return None
@@ -348,7 +348,7 @@ class GameArbiter:
                     outcome = "gana" if won else "pierde"
                     outcome_id = (prediction.get("outcomes") or {}).get(outcome)
                     if not outcome_id:
-                        log.error("Prediction sin outcome para %s", outcome)
+                        log.error("Prediction missing outcome for %s", outcome)
                         return
                     await self.helix.resolve_prediction(
                         self.broadcaster_id,
@@ -360,13 +360,13 @@ class GameArbiter:
                         await self.announce(
                             cfg.say_as("Partida ganada." if won else "Partida perdida.")
                         )
-                    log.info("Prediction resuelta: %s", "ganada" if won else "perdida")
+                    log.info("Prediction resolved: %s", "ganada" if won else "perdida")
                     return
             except Exception:  # noqa: BLE001 - el resultado se puede reintentar
-                log.exception("No se pudo consultar el resultado de la partida")
+                log.exception("Failed to check match result")
             if attempt < 5:
                 await asyncio.sleep(10)
-        log.warning("El resultado de la partida aun no esta disponible")
+        log.warning("Match result is not yet available")
 
     async def _prediction_result(self, prediction: dict[str, Any]) -> bool | None:
         game = str(prediction.get("game", ""))
@@ -377,7 +377,7 @@ class GameArbiter:
             return await self.lol.match_won(match_key.removeprefix("lol:"))
         if "valorant" in game:
             log.info(
-                "No resuelvo automaticamente la prediction de Valorant: "
+                "Not resolving Valorant prediction automatically: "
                 "requiere !vwin o !vloss"
             )
             return None
@@ -390,5 +390,5 @@ class GameArbiter:
             return
         active_game_id = await self.lol.active_game_id()
         if active_game_id is None:
-            log.info("La partida de LoL ya no esta activa; consultando su resultado")
+            log.info("LoL match is no longer active; checking its result")
             self._schedule_prediction_result()

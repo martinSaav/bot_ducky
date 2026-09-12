@@ -78,7 +78,7 @@ class Registry:
             return
 
         log.info(
-            "Comando !%s invocado por %s: %s",
+            "Command !%s invoked by %s: %s",
             parts[0].lower(),
             msg.display_name,
             text,
@@ -100,10 +100,10 @@ class Registry:
         except (RiotError, ValorantError) as exc:
             reply = str(exc)
         except HelixError as exc:
-            log.warning("Helix fallo en !%s: %s", cmd.name, exc)
+            log.warning("Helix failed on !%s: %s", cmd.name, exc)
             reply = "Twitch no respondio bien a esa peticion, proba de nuevo en un minuto."
         except Exception:  # noqa: BLE001
-            log.exception("Error en el comando !%s", cmd.name)
+            log.exception("Error in command !%s", cmd.name)
             reply = "Se rompio algo ejecutando ese comando, ya quedo en el log."
 
         if reply and self.svc.chat:
@@ -170,7 +170,7 @@ class Registry:
             semantic = await ctx.svc.embeddings.search(game, seconds, limit=limit)
             if semantic:
                 log.info(
-                    "cmd_summary: %d mensajes por embeddings (ventana %ds, query=%r)",
+                    "cmd_summary: %d messages via embeddings (window %ds, query=%r)",
                     len(semantic), seconds, game,
                 )
                 messages = [
@@ -189,7 +189,7 @@ class Registry:
             persisted = await ctx.svc.database_history.recent(seconds, limit=limit)
             if persisted:
                 log.info(
-                    "cmd_summary: %d mensajes por ventana temporal (%ds)",
+                    "cmd_summary: %d messages via time window (%ds)",
                     len(persisted), seconds,
                 )
                 messages = [

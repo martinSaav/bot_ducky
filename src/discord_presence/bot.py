@@ -44,21 +44,21 @@ class PresenceBot(discord.Client):
 
     # ------------------------------------------------------------------
     async def on_ready(self) -> None:
-        log.info("Discord conectado como %s", self.user)
+        log.info("Discord connected as %s", self.user)
         if not cfg.discord_streamer_id:
-            log.error("DISCORD_STREAMER_ID no configurado: esta fuente no reporta nada")
+            log.error("DISCORD_STREAMER_ID not configured: this source reports nothing")
             return
 
         member = self._find_streamer()
         if member is None:
             log.error(
-                "El streamer (id %s) no aparece en ningun servidor del bot. "
+                "Streamer (id %s) not found in any bot server. "
                 "Invitalo al servidor privado o revisa el SERVER MEMBERS INTENT.",
                 cfg.discord_streamer_id,
             )
             return
 
-        log.info("Vigilando la presencia de %s", member)
+        log.info("Watching presence for %s", member)
         # Si ya estaba jugando cuando arrancamos, informamos igual: sin esto
         # el arbitro no sabria nada hasta el proximo cambio de actividad.
         await self.arbiter.report("discord", playing_name(member))
@@ -80,7 +80,7 @@ class PresenceBot(discord.Client):
         old, new = playing_name(before), playing_name(after)
         if old == new:
             return
-        log.debug("Presencia: %r -> %r", old, new)
+        log.debug("Presence: %r -> %r", old, new)
         await self.arbiter.report("discord", new)
 
     async def _periodic_check(self) -> None:

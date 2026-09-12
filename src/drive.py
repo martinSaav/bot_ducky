@@ -147,7 +147,7 @@ class DriveUploader:
                     ) as resp:
                         status = resp.status
                         if status in (200, 201):
-                            log.info("Subido %s (%.1f MB)", path.name, size / 1e6)
+                            log.info("Uploaded %s (%.1f MB)", path.name, size / 1e6)
                             return await resp.json(content_type=None)
                         if status == 308:
                             # Google confirma hasta que byte recibio; seguimos desde ahi.
@@ -167,7 +167,7 @@ class DriveUploader:
                         ) from exc
                     wait = 2 ** attempts
                     log.warning(
-                        "Corte subiendo %s (%s). Reintento %d/%d en %ss",
+                        "Upload interrupted for %s (%s). Retry %d/%d in %ss",
                         path.name, exc, attempts, MAX_RETRIES, wait,
                     )
                     await asyncio.sleep(wait)

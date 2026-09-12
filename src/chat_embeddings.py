@@ -52,7 +52,7 @@ class EmbeddingWorker:
         try:
             self._queue.put_nowait((message_id, text))
         except asyncio.QueueFull:
-            log.warning("Cola de embeddings llena; descartando mensaje id=%d", message_id)
+            log.warning("Embeddings queue full; dropping message id=%d", message_id)
 
     async def search(
         self,
@@ -166,7 +166,7 @@ class EmbeddingWorker:
             try:
                 await self._process_batch(batch)
             except Exception:  # noqa: BLE001
-                log.exception("Error procesando batch de embeddings (%d items)", len(batch))
+                log.exception("Error processing embeddings batch (%d items)", len(batch))
             finally:
                 for _ in batch:
                     self._queue.task_done()
@@ -186,7 +186,7 @@ class EmbeddingWorker:
                 """,
                 [(mid, _vec_to_pg(vec)) for mid, vec in zip(ids, vectors)],
             )
-        log.debug("Embeddings guardados: %d mensajes", len(ids))
+        log.debug("Embeddings saved for %d messages", len(ids))
 
     async def _embed_batch(self, texts: list[str]) -> list[list[float]] | None:
         """Llama a /embeddings y devuelve los vectores en el mismo orden."""
@@ -206,14 +206,14 @@ class EmbeddingWorker:
                     body = await resp.json(content_type=None)
                     if resp.status == 429 or resp.status >= 500:
                         log.warning(
-                            "API de embeddings retornable HTTP %s (intento %d)",
+                            "Embeddings API returned HTTP %s (attempt %d)",
                             resp.status, attempt + 1,
                         )
                         await asyncio.sleep(2 ** attempt)
                         continue
                     if resp.status >= 400:
                         log.warning(
-                            "API de embeddings fallo HTTP %s: %s", resp.status, body
+                            "Embeddings API failed HTTP %s: %s", resp.status, body
                         )
                         return None
                     data = body.get("data") or []
@@ -221,9 +221,9 @@ class EmbeddingWorker:
                     sorted_data = sorted(data, key=lambda d: d.get("index", 0))
                     return [item["embedding"] for item in sorted_data]
             except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
-                log.warning("Error de red en embeddings (intento %d): %s", attempt + 1, exc)
+                log.warning("Network error in embeddings (attempt %d): %s", attempt + 1, exc)
                 await asyncio.sleep(2 ** attempt)
-        log.error("API de embeddings no respondio despues de reintentos")
+        log.error("Embeddings API did not respond after retries")
         return None
 
     async def _embed_single(self, text: str) -> list[float] | None:

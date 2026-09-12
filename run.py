@@ -94,9 +94,9 @@ async def monitor_stream(
                     messages, live_game_name(arbiter), _format_seconds(seconds)
                 )
                 if summary:
-                    log.info("Resumen final del stream:\n%s", summary)
+                    log.info("Final stream summary:\n%s", summary)
                 else:
-                    log.info("Stream finalizado; no hubo resumen LLM disponible")
+                    log.info("Stream ended; no LLM summary available")
                 if database_history is not None and stream_id:
                     final_game = live_game_name(arbiter)
                     if final_game == "sin juego detectado":
@@ -113,7 +113,7 @@ async def monitor_stream(
                 stream_id = None
                 session_game = None
         except Exception:  # noqa: BLE001 - monitor must not stop the bot
-            log.exception("No se pudo comprobar el estado del stream")
+            log.exception("Could not check stream status")
         try:
             await asyncio.wait_for(stop.wait(), timeout=cfg.presence_check_seconds)
         except asyncio.TimeoutError:
@@ -171,7 +171,7 @@ async def main() -> int:
 
     missing = cfg.missing("twitch_client_id", "twitch_client_secret", "twitch_channel")
     if missing:
-        log.error("Falta configurar en .env: %s. Copia .env.example a .env.", ", ".join(missing))
+        log.error("Missing .env configuration: %s. Copy .env.example to .env.", ", ".join(missing))
         return 1
 
     timeout = aiohttp.ClientTimeout(total=120, connect=15)
@@ -183,7 +183,7 @@ async def main() -> int:
 
         if not auth.has("broadcaster"):
             log.error(
-                "Falta el token del broadcaster. Que %s corra:  "
+                "Missing broadcaster token. Have %s run:  "
                 "python tools/auth_twitch.py broadcaster",
                 cfg.twitch_channel,
             )
@@ -195,7 +195,7 @@ async def main() -> int:
             log.error("%s", exc)
             return 1
         log.info(
-            "%s | canal: %s (id %s)",
+            "%s | channel: %s (id %s)",
             cfg.bot_name or "bot", cfg.twitch_channel, broadcaster_id,
         )
 
@@ -213,10 +213,10 @@ async def main() -> int:
                     ignored_authors=cfg.chat_ignored_authors | {cfg.bot_login.lower()},
                 )
                 await database_history.start()
-                log.info("Historial PostgreSQL: activo")
+                log.info("PostgreSQL history: active")
             except Exception:  # noqa: BLE001 - database is optional
                 database_history = None
-                log.exception("Historial PostgreSQL: apagado; el bot seguira en memoria")
+                log.exception("PostgreSQL history: disabled; bot will keep it in memory")
         llm_summary = LlmSummary(
             session,
             cfg.llm_api_key,
@@ -225,7 +225,7 @@ async def main() -> int:
             cfg.llm_max_messages,
         )
         if llm_summary.configured:
-            log.info("Resumen LLM: activo (%s)", cfg.llm_model)
+            log.info("LLM summary: active (%s)", cfg.llm_model)
 
         # --- embeddings (opcional: requiere DB + LLM) ----------------------
         embedding_worker: EmbeddingWorker | None = None
@@ -241,15 +241,15 @@ async def main() -> int:
                 )
                 await embedding_worker.start()
                 log.info(
-                    "Embeddings: activo (%s, batch=%d)",
+                    "Embeddings: active (%s, batch=%d)",
                     cfg.embedding_model, cfg.embedding_batch_size,
                 )
                 database_history._embedding_worker = embedding_worker  # noqa: SLF001
             except Exception:  # noqa: BLE001
                 embedding_worker = None
-                log.exception("Embeddings: apagado por error al iniciar")
+                log.exception("Embeddings: disabled due to startup error")
         elif not cfg.llm_api_key:
-            log.info("Embeddings: apagado (falta LLM_API_KEY)")
+            log.info("Embeddings: disabled (missing LLM_API_KEY)")
 
         arbiter = GameArbiter(
             helix, resolver, broadcaster_id, state=state, lol=lol, valorant=valorant,
@@ -280,7 +280,7 @@ async def main() -> int:
             async def on_chat_message(message: ChatMessage) -> None:
                 accepted = history.add(message)
                 if accepted:
-                    log.info("Mensaje guardado de %s", message.display_name)
+                    log.info("Message saved from %s", message.display_name)
                 if accepted and database_history is not None:
                     database_history.enqueue(message)
                 await registry.dispatch(message)
@@ -293,10 +293,10 @@ async def main() -> int:
             tasks["chat"] = asyncio.create_task(chat.run(), name="chat")
             chat_control = ChatControlServer(chat)
             await chat_control.start()
-            log.info("Bot de chat: activo como %s", cfg.bot_login)
+            log.info("Chat bot: active as %s", cfg.bot_login)
         else:
             log.warning(
-                "Bot de chat: apagado (falta 'python tools/auth_twitch.py bot')"
+                "Chat bot: disabled (missing 'python tools/auth_twitch.py bot')"
             )
 
         # --- 1a. agente de escritorio (fuente principal) ------------------
@@ -305,7 +305,7 @@ async def main() -> int:
             agent_server = AgentServer(arbiter)
             await agent_server.start()
         else:
-            log.warning("Agente de escritorio: apagado (falta AGENT_TOKEN)")
+            log.warning("Desktop agent: disabled (missing AGENT_TOKEN)")
 
         # --- 1b. presencia de Discord (respaldo) --------------------------
         if cfg.discord_token and cfg.discord_streamer_id:
@@ -314,16 +314,16 @@ async def main() -> int:
             tasks["discord"] = asyncio.create_task(
                 presence.start(cfg.discord_token), name="discord"
             )
-            log.info("Presencia de Discord: activa (respaldo del agente)")
+            log.info("Discord presence: active (agent fallback)")
         else:
             log.warning(
-                "Presencia de Discord: apagada (falta DISCORD_BOT_TOKEN o DISCORD_STREAMER_ID)"
+                "Discord presence: disabled (missing DISCORD_BOT_TOKEN or DISCORD_STREAMER_ID)"
             )
 
         if not cfg.agent_token and not (cfg.discord_token and cfg.discord_streamer_id):
-            log.warning("Sin fuentes: la categoria no se va a cambiar sola")
+            log.warning("No sources: category will not change automatically")
         elif cfg.autocat_dry_run:
-            log.info("Auto-categorizador en DRY-RUN: no toca Twitch")
+            log.info("Auto-categorizer in DRY-RUN: not touching Twitch")
 
         tasks["stream-monitor"] = asyncio.create_task(
             monitor_stream(
@@ -338,14 +338,14 @@ async def main() -> int:
         svc.clips = clips
         if cfg.clips_enabled and drive.configured:
             tasks["clips"] = asyncio.create_task(clips.scheduler(), name="clips")
-            log.info("Pipeline de clips: activo (diario a las %s)", cfg.clips_run_at)
+            log.info("Clips pipeline: active (daily at %s)", cfg.clips_run_at)
         elif cfg.clips_enabled:
             log.warning(
-                "Pipeline de clips: apagado (falta GDRIVE_FOLDER_ID o %s)", cfg.sa_path
+                "Clips pipeline: disabled (missing GDRIVE_FOLDER_ID or %s)", cfg.sa_path
             )
 
         if not tasks and agent_server is None:
-            log.error("No hay ningun subsistema configurado. Revisa el .env y el README.")
+            log.error("No subsystems configured. Check .env and README.")
             return 1
 
         loop = asyncio.get_running_loop()
@@ -357,7 +357,7 @@ async def main() -> int:
                 # de asyncio.run se encarga.
                 pass
 
-        log.info("Todo arriba. Ctrl+C para cortar.")
+        log.info("All systems up. Ctrl+C to stop.")
         stop_task = asyncio.create_task(stop.wait(), name="stop")
         done, _ = await asyncio.wait(
             [*tasks.values(), stop_task], return_when=asyncio.FIRST_COMPLETED
@@ -367,9 +367,9 @@ async def main() -> int:
             if task.get_name() != "stop" and not task.cancelled():
                 exc = task.exception()
                 if exc:
-                    log.error("El subsistema '%s' murio: %r", task.get_name(), exc)
+                    log.error("Subsystem '%s' died: %r", task.get_name(), exc)
 
-        log.info("Cerrando...")
+        log.info("Shutting down...")
         if agent_server is not None:
             await agent_server.stop()
         if svc.chat:

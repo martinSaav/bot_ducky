@@ -49,7 +49,7 @@ class ClipPipeline:
         keep = {k: v for k, v in current.items() if float(v.get("at", 0)) >= cutoff}
         if len(keep) != len(current):
             await self.svc.state.set(STATE_KEY, keep)
-            log.debug("Purgadas %d entradas viejas del historial", len(current) - len(keep))
+            log.debug("Purged %d old history entries", len(current) - len(keep))
 
     # ------------------------------------------------------------------
     async def select_clips(self) -> list[dict[str, Any]]:
@@ -58,7 +58,7 @@ class ClipPipeline:
         clips = await self.svc.helix.get_clips(
             self.svc.broadcaster_id, started_at=start, ended_at=end, limit=100
         )
-        log.info("Twitch devolvio %d clips de las ultimas %dh", len(clips), cfg.clips_lookback_hours)
+        log.info("Twitch returned %d clips from the last %dh", len(clips), cfg.clips_lookback_hours)
 
         done = self._uploaded()
         fresh = [
@@ -92,7 +92,7 @@ class ClipPipeline:
         out, _ = await proc.communicate()
         if proc.returncode != 0 or not target.exists():
             log.error(
-                "yt-dlp fallo con %s (codigo %s): %s",
+                "yt-dlp failed on %s (code %s): %s",
                 clip["id"], proc.returncode, (out or b"").decode(errors="replace")[-500:],
             )
             return None
@@ -102,14 +102,14 @@ class ClipPipeline:
     async def run_once(self) -> dict[str, int]:
         """Una corrida completa. Devuelve el resumen para loguear/anunciar."""
         if self.running:
-            log.info("Ya hay una corrida en curso, la salteo")
+            log.info("A run is already in progress, skipping")
             return {"skipped": 1}
         self.running = True
         summary = {"encontrados": 0, "subidos": 0, "fallidos": 0}
         try:
             if not self.drive.configured:
                 log.error(
-                    "Google Drive sin configurar (GDRIVE_FOLDER_ID / %s). Cancelo la corrida.",
+                    "Google Drive not configured (GDRIVE_FOLDER_ID / %s). Canceling run.",
                     cfg.sa_path,
                 )
                 return summary
@@ -117,14 +117,14 @@ class ClipPipeline:
             clips = await self.select_clips()
             summary["encontrados"] = len(clips)
             if not clips:
-                log.info("No hay clips nuevos para subir")
+                log.info("No new clips to upload")
                 return summary
 
             for clip in clips:
                 clip_id = clip["id"]
                 title = clip.get("title", "")
                 log.info(
-                    "Procesando %s (%s vistas) - %s",
+                    "Processing %s (%s views) - %s",
                     clip_id, clip.get("view_count"), title,
                 )
                 path = await self.download(clip)
@@ -152,7 +152,7 @@ class ClipPipeline:
                     )
                     summary["subidos"] += 1
                 except DriveError as exc:
-                    log.error("No se pudo subir %s: %s", clip_id, exc)
+                    log.error("Failed to upload %s: %s", clip_id, exc)
                     summary["fallidos"] += 1
                     # Un error de configuracion se repite con todos los clips.
                     if "Unidad compartida" in str(exc) or "GDRIVE_FOLDER_ID" in str(exc):
@@ -163,7 +163,7 @@ class ClipPipeline:
 
             await self._prune()
             log.info(
-                "Corrida terminada: %d encontrados, %d subidos, %d fallidos",
+                "Run completed: %d found, %d uploaded, %d failed",
                 summary["encontrados"], summary["subidos"], summary["fallidos"],
             )
             return summary
@@ -175,7 +175,7 @@ class ClipPipeline:
         try:
             hour, minute = (int(x) for x in cfg.clips_run_at.split(":", 1))
         except ValueError:
-            log.warning("CLIPS_RUN_AT invalido (%r), uso 05:00", cfg.clips_run_at)
+            log.warning("Invalid CLIPS_RUN_AT (%r), defaulting to 05:00", cfg.clips_run_at)
             hour, minute = 5, 0
         now = datetime.now()
         target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -188,7 +188,7 @@ class ClipPipeline:
         while True:
             wait = self._seconds_until_run()
             log.info(
-                "Proxima corrida de clips en %.1f h (%s)",
+                "Next clips run in %.1f h (%s)",
                 wait / 3600, cfg.clips_run_at,
             )
             await asyncio.sleep(wait)
@@ -197,6 +197,6 @@ class ClipPipeline:
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
-                log.exception("La corrida de clips fallo entera")
+                log.exception("The entire clips run failed")
             # Nos corremos un minuto para no re-disparar en el mismo minuto.
             await asyncio.sleep(60)

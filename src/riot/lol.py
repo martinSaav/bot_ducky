@@ -108,7 +108,7 @@ class LolClient:
             data = await resp.json(content_type=None)
         self._champs = {int(c["key"]): c["name"] for c in data["data"].values()}
         self._champs_cache.set("v", version)
-        log.info("Data Dragon %s: %d campeones", version, len(self._champs))
+        log.info("Data Dragon %s: %d champions", version, len(self._champs))
         return self._champs
 
     # ------------------------------------------------------------------
