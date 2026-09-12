@@ -378,28 +378,30 @@ comando `!resumen` muestra una primera versión estructurada:
 ```
 
 Incluye el juego detectado, palabras frecuentes como temas aproximados y los
-participantes con más mensajes. Este MVP no recupera mensajes anteriores al
-arranque ni usa todavía un LLM; esas son las siguientes capas para PostgreSQL
-y el resumen semántico.
+participantes con más mensajes.
 
-Cuando el canal pasa de online a offline, el monitor genera un resumen LLM de
+Cuando el canal pasa de online a offline, el bot genera un resumen LLM de
 la sesión y lo escribe en `logs/bot.log` como `Final stream summary`.
 Si PostgreSQL está activo, además guarda la sesión en `stream_sessions` con su
 inicio, fin, juego, cantidad de mensajes y resumen.
 
-Para activar el resumen semántico, configurá `LLM_API_KEY`. `!resumen` usará
-los mensajes persistidos en PostgreSQL mediante búsqueda por similitud vectorial
-(`chat_embeddings`) cuando estén disponibles, y volverá al resumen temporal si
-la API falla o la clave está vacía. El cliente usa una API compatible con OpenAI
-(ej. Gemini), timeout de 45 segundos y reintentos limitados.
+**Resumen semántico con LLM:** configurá `LLM_API_KEY` con una clave compatible
+con la API de OpenAI (ej. Gemini). `!resumen` priorizará los mensajes
+persistidos en PostgreSQL mediante búsqueda por similitud vectorial
+(`chat_embeddings`) cuando estén disponibles, y caerá al resumen en memoria si
+la API falla o la clave está vacía. El cliente usa timeout de 45 segundos y
+reintentos con backoff exponencial.
+
+**Persistencia entre reinicios:** configurá `DATABASE_URL` con una base
+PostgreSQL que tenga la extensión `pgvector` instalada. El worker guarda los
+mensajes y genera sus embeddings en segundo plano, sin bloquear la conexión de
+Twitch. El esquema (tablas `chat_messages`, `chat_embeddings` y
+`stream_sessions`) se crea automáticamente al arrancar.
 
 Nightbot y la cuenta del propio bot se excluyen automáticamente del historial.
-Podés agregar otras cuentas en `CHAT_IGNORED_AUTHORS`, separadas por comas.
+Podés agregar otras cuentas en `CHAT_IGNORED_AUTHORS` (en el `.env`), separadas
+por comas.
 
-Para persistir los mensajes entre reinicios, configurá `DATABASE_URL` con una
-base PostgreSQL que tenga `pgvector` instalado. El worker guarda los mensajes
-y genera sus embeddings en segundo plano para no bloquear la conexión de Twitch.
-El esquema (incluyendo la tabla `chat_embeddings`) se crea automáticamente al arrancar.
 
 Cuando detecta una partida de League of Legends o VALORANT, el bot crea una
 prediction de Twitch con las opciones `Gana` y `Pierde`. No crea otra mientras
