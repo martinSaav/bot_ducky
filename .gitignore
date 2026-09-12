@@ -16,3 +16,9 @@ venv/
 agent/target/
 agent/agent.toml
 agent/agent.log
+
+# tests y cobertura
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/

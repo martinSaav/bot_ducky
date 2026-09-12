@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Tests & Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install runtime dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests with coverage
+        env:
+          # Variables mínimas para que cfg no explote al importar
+          TWITCH_CLIENT_ID: "ci_dummy"
+          TWITCH_CLIENT_SECRET: "ci_dummy"
+          TWITCH_CHANNEL: "ci_dummy"
+        run: |
+          pytest \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov \
+            -v
+
+      - name: Upload HTML coverage report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 14
+
+      - name: Coverage summary in job log
+        if: always()
+        run: |
+          python -m coverage report --skip-covered | tail -5

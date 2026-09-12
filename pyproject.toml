@@ -1,0 +1,30 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = [
+    "--tb=short",
+    "-q",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "src/discord_presence/*",  # requiere discord.py instalado
+    "src/drive.py",            # I/O pesada con Google Drive
+    "src/agent_server.py",     # servidor HTTP de integración
+    "src/chat_control.py",     # servidor TCP local
+    "src/clips/pipeline.py",   # I/O pesada: yt-dlp + Google Drive
+    "src/logging_setup.py",    # configuración de logging, trivial
+    "src/riot/lol.py",         # cliente HTTP externo (Riot API)
+    "src/riot/valorant.py",    # cliente HTTP externo (HenrikDev)
+    "src/twitch/auth.py",      # flujo OAuth con servidor local
+    "src/twitch/helix.py",     # cliente HTTP externo (Twitch API)
+    "src/chat_embeddings.py",  # cliente HTTP externo (OpenAI embeddings)
+    "src/chat_history_db.py",  # requiere asyncpg + PostgreSQL real
+    "src/llm_summary.py",      # cliente HTTP externo (LLM)
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 50
