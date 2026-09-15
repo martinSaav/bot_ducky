@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Tests & Coverage
+    name: Tests & Coverage (Python)
     runs-on: ubuntu-latest
 
     steps:
@@ -53,3 +53,29 @@ jobs:
         if: always()
         run: |
           python -m coverage report --skip-covered | tail -5
+
+  rust-test:
+    name: Tests (Rust agent)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            agent/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('agent/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run Rust unit tests
+        working-directory: agent
+        run: cargo test --locked

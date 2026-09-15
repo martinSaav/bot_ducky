@@ -121,3 +121,157 @@ impl Config {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+//
+// Naming: [method]_when_[scenario]_[expected_result]
+// No tocan el sistema de archivos ni la red.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Config valida de referencia. Cada test parte de esta y muta solo el
+    /// campo que quiere probar, manteniendo los demas en estado valido.
+    fn valid() -> Config {
+        Config {
+            endpoint: "http://localhost:8787/game".to_string(),
+            token: "mi-token-secreto".to_string(),
+            poll_seconds: 5,
+            heartbeat_seconds: 60,
+            log_file: PathBuf::from("agent.log"),
+            games: vec![GameRule {
+                name: "League of Legends".to_string(),
+                priority: 0,
+                processes: vec!["League of Legends.exe".to_string()],
+            }],
+        }
+    }
+
+    // --- validate ---
+
+    #[test]
+    fn validate_when_config_is_valid_returns_ok() {
+        assert!(valid().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_when_endpoint_is_empty_returns_err() {
+        let mut cfg = valid();
+        cfg.endpoint = "".to_string();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("endpoint"), "mensaje: {err}");
+    }
+
+    #[test]
+    fn validate_when_endpoint_is_only_whitespace_returns_err() {
+        let mut cfg = valid();
+        cfg.endpoint = "   ".to_string();
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn validate_when_endpoint_uses_https_returns_err_with_hint() {
+        let mut cfg = valid();
+        cfg.endpoint = "https://example.com/game".to_string();
+        let err = cfg.validate().unwrap_err();
+        assert!(
+            err.contains("https") || err.contains("TLS") || err.contains("tls"),
+            "mensaje: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_when_endpoint_has_no_scheme_returns_err() {
+        let mut cfg = valid();
+        cfg.endpoint = "localhost:8787/game".to_string();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("http://"), "mensaje: {err}");
+    }
+
+    #[test]
+    fn validate_when_token_is_empty_returns_err() {
+        let mut cfg = valid();
+        cfg.token = "".to_string();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("token"), "mensaje: {err}");
+    }
+
+    #[test]
+    fn validate_when_token_is_placeholder_returns_err() {
+        let mut cfg = valid();
+        cfg.token = "CAMBIAME".to_string();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("token"), "mensaje: {err}");
+    }
+
+    #[test]
+    fn validate_when_games_list_is_empty_returns_err() {
+        let mut cfg = valid();
+        cfg.games = vec![];
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("games") || err.contains("juego"), "mensaje: {err}");
+    }
+
+    #[test]
+    fn validate_when_poll_seconds_is_zero_returns_err() {
+        let mut cfg = valid();
+        cfg.poll_seconds = 0;
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("poll"), "mensaje: {err}");
+    }
+
+    #[test]
+    fn validate_when_game_has_no_processes_returns_err_with_game_name() {
+        let mut cfg = valid();
+        cfg.games[0].processes = vec![];
+        let err = cfg.validate().unwrap_err();
+        assert!(
+            err.contains("League of Legends") || err.contains("processes"),
+            "mensaje: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_when_one_valid_and_one_empty_game_returns_err() {
+        let mut cfg = valid();
+        cfg.games.push(GameRule {
+            name: "Juego Roto".to_string(),
+            priority: 0,
+            processes: vec![],
+        });
+        assert!(cfg.validate().is_err());
+    }
+
+    // --- resolve ---
+
+    #[test]
+    fn resolve_when_path_is_absolute_returns_same_path() {
+        let base = Path::new("C:\\agent");
+        let abs = Path::new("C:\\logs\\agent.log");
+        assert_eq!(Config::resolve(base, abs), PathBuf::from("C:\\logs\\agent.log"));
+    }
+
+    #[test]
+    fn resolve_when_path_is_relative_joins_with_base() {
+        let base = Path::new("/opt/agent");
+        let rel = Path::new("agent.log");
+        assert_eq!(
+            Config::resolve(base, rel),
+            PathBuf::from("/opt/agent/agent.log")
+        );
+    }
+
+    #[test]
+    fn resolve_when_path_is_dot_slash_joins_correctly() {
+        let base = Path::new("/opt/agent");
+        let rel = Path::new("logs/agent.log");
+        assert_eq!(
+            Config::resolve(base, rel),
+            PathBuf::from("/opt/agent/logs/agent.log")
+        );
+    }
+}
