@@ -49,6 +49,36 @@ jobs:
           path: htmlcov/
           retention-days: 14
 
+      - name: Validate Riot API Key
+        env:
+          RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+          RIOT_ID: ${{ vars.RIOT_ID || 'Martin#123' }}
+          RIOT_REGION: ${{ vars.RIOT_REGION || 'americas' }}
+        if: env.RIOT_API_KEY != ''
+        run: |
+          python -c "
+          import urllib.request, urllib.error, urllib.parse, sys, os
+          api_key = os.environ['RIOT_API_KEY']
+          riot_id = os.environ['RIOT_ID']
+          region = os.environ['RIOT_REGION']
+          if '#' not in riot_id: sys.exit(0)
+          name, tag = riot_id.split('#', 1)
+          name = urllib.parse.quote(name)
+          tag = urllib.parse.quote(tag)
+          url = f'https://{region}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{name}/{tag}'
+          req = urllib.request.Request(url, headers={'X-Riot-Token': api_key})
+          try:
+              urllib.request.urlopen(req)
+              print('Riot API key is valid!')
+          except urllib.error.HTTPError as e:
+              if e.code in (401, 403):
+                  print(f'::error::Riot API key rejected (HTTP {e.code}). It may have expired.')
+                  sys.exit(1)
+              print(f'::warning::Riot API returned HTTP {e.code}')
+          except Exception as e:
+              print(f'::warning::Could not validate Riot API key: {e}')
+          "
+
       - name: Coverage summary in job log
         if: always()
         run: |

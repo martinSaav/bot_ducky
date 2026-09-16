@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: ducky_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # Mapeo de puertos para el control de chat y el endpoint del agente
+    ports:
+      - "${AGENT_PORT:-8787}:${AGENT_PORT:-8787}"
+      - "${CHAT_CONTROL_PORT:-8790}:${CHAT_CONTROL_PORT:-8790}"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./downloads:/app/downloads
+      - ./secrets:/app/secrets
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: ducky_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ducky}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-duckypass}
+      POSTGRES_DB: ${POSTGRES_DB:-duckydb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ducky_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ducky} -d ${POSTGRES_DB:-duckydb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ducky_pgdata:
