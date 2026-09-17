@@ -14,8 +14,6 @@ import aiohttp
 
 log = logging.getLogger("chat_embeddings")
 
-# Dimensión de text-embedding-004 de Gemini.
-EMBEDDING_DIM = 768
 
 
 class EmbeddingWorker:
@@ -121,13 +119,24 @@ class EmbeddingWorker:
     async def _ensure_schema(self) -> None:
         """Crea la tabla chat_embeddings con la dimensión correcta si no existe."""
         async with self._pool.acquire() as conn:
+            exists = await conn.fetchval(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'chat_embeddings')"
+            )
+            if exists:
+                return
+
+            vec = await self._embed_single("test")
+            if not vec:
+                raise RuntimeError("No se pudo obtener un embedding de prueba para calcular la dimensión.")
+            dim = len(vec)
+
             await conn.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS chat_embeddings (
                     id BIGSERIAL PRIMARY KEY,
                     message_id BIGINT NOT NULL
                         REFERENCES chat_messages(id) ON DELETE CASCADE,
-                    embedding VECTOR({EMBEDDING_DIM}) NOT NULL,
+                    embedding VECTOR({dim}) NOT NULL,
                     CONSTRAINT chat_embeddings_message_id_key UNIQUE (message_id)
                 );
                 CREATE INDEX IF NOT EXISTS chat_embeddings_message_id_idx
@@ -194,7 +203,7 @@ class EmbeddingWorker:
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
-        payload: dict[str, Any] = {"model": self._model, "input": texts}
+        payload: dict[str, Any] = {"model": self._model, "input": texts, "dimensions": 768}
         for attempt in range(4):
             try:
                 async with self._session.post(

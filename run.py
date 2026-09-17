@@ -51,6 +51,7 @@ async def monitor_stream(
     llm_summary: LlmSummary,
     arbiter: GameArbiter,
     stop: asyncio.Event,
+    chat: ChatClient | None = None,
 ) -> None:
     """Detect the live-to-offline transition and log a session summary."""
     session_started = time.time()
@@ -95,6 +96,8 @@ async def monitor_stream(
                 )
                 if summary:
                     log.info("Final stream summary:\n%s", summary)
+                    if chat:
+                        await chat.say(f"Resumen del stream: {summary}")
                 else:
                     log.info("Stream ended; no LLM summary available")
                 if database_history is not None and stream_id:
@@ -327,7 +330,7 @@ async def main() -> int:
 
         tasks["stream-monitor"] = asyncio.create_task(
             monitor_stream(
-                helix, history, database_history, llm_summary, arbiter, stop
+                helix, history, database_history, llm_summary, arbiter, stop, svc.chat
             ),
             name="stream-monitor",
         )
