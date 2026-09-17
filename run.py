@@ -91,9 +91,14 @@ async def monitor_stream(
                             )
                             for item in persisted
                         ]
-                summary = await llm_summary.summarize(
-                    messages, live_game_name(arbiter), _format_seconds(seconds)
-                )
+                summary = None
+                min_seconds = cfg.llm_min_stream_minutes * 60
+                if seconds >= min_seconds:
+                    summary = await llm_summary.summarize(
+                        messages, live_game_name(arbiter), _format_seconds(seconds)
+                    )
+                else:
+                    log.info("Stream too short (%dm < %dm), skipping summary", seconds // 60, cfg.llm_min_stream_minutes)
                 if summary:
                     log.info("Final stream summary:\n%s", summary)
                     if chat:

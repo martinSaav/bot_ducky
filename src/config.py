@@ -74,6 +74,7 @@ class Config:
     llm_model = _str("LLM_MODEL", "gpt-4o-mini")
     llm_base_url = _str("LLM_BASE_URL", "https://api.openai.com/v1")
     llm_max_messages = _int("LLM_MAX_MESSAGES", 300)
+    llm_min_stream_minutes = _int("LLM_MIN_STREAM_MINUTES", 15)
     embedding_model = _str("EMBEDDING_MODEL", "models/gemini-embedding-2")
     embedding_batch_size = _int("EMBEDDING_BATCH_SIZE", 20)
 
