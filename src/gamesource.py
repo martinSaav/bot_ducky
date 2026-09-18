@@ -324,7 +324,7 @@ class GameArbiter:
 
         log.info(
             "Not creating automatic Valorant prediction: Discord confirms the "
-            "juego abierto, pero no una partida activa verificable"
+            "game is open, but there is no verifiable active match"
         )
         return None
 
@@ -360,7 +360,7 @@ class GameArbiter:
                         await self.announce(
                             cfg.say_as("Partida ganada." if won else "Partida perdida.")
                         )
-                    log.info("Prediction resolved: %s", "ganada" if won else "perdida")
+                    log.info("Prediction resolved: %s", "won" if won else "lost")
                     return
             except Exception:  # noqa: BLE001 - el resultado se puede reintentar
                 log.exception("Failed to check match result")

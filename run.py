@@ -400,4 +400,4 @@ if __name__ == "__main__":
     try:
         raise SystemExit(asyncio.run(main()))
     except KeyboardInterrupt:
-        print("\nChau.")
+        print("\nGoodbye.")
