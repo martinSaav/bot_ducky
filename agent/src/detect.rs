@@ -7,9 +7,11 @@
 use std::collections::HashMap;
 
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
+use serde_json::Value;
 
 use crate::config::GameRule;
 use crate::valorant;
+use crate::lol;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detected {
@@ -19,6 +21,8 @@ pub struct Detected {
     pub exe: String,
     /// ID de la partida activa (solo Valorant, via API local del cliente).
     pub match_id: Option<String>,
+    /// Datos en vivo (solo League of Legends, via Live Client Data API).
+    pub metadata: Option<Value>,
 }
 
 struct Rule {
@@ -77,9 +81,12 @@ impl Detector {
 
         let mut detected = self.select_winner(&running)?;
 
+        let game_lower = detected.game.to_lowercase();
         // Si el juego es Valorant, consultamos la API local para el match_id.
-        if detected.game.to_lowercase().contains("valorant") {
+        if game_lower.contains("valorant") {
             detected.match_id = valorant::active_match_id();
+        } else if game_lower.contains("league of legends") {
+            detected.metadata = lol::live_data();
         }
 
         Some(detected)
@@ -99,6 +106,7 @@ impl Detector {
                         game: rule.game.clone(),
                         exe: original.clone(),
                         match_id: None,
+                        metadata: None,
                     };
                     if best.as_ref().map_or(true, |(p, _)| rule.priority > *p) {
                         best = Some((rule.priority, candidate));

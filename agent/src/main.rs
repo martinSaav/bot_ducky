@@ -7,6 +7,7 @@
 mod clock;
 mod config;
 mod detect;
+mod lol;
 mod report;
 mod valorant;
 

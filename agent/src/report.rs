@@ -47,6 +47,7 @@ impl Reporter {
             "source": "agent",
             "game": detected.map(|d| d.game.as_str()),
             "match_id": detected.and_then(|d| d.match_id.as_deref()),
+            "metadata": detected.and_then(|d| d.metadata.as_ref()),
             "exe": detected.map(|d| d.exe.as_str()),
             "host": self.host,
             "agent_version": env!("CARGO_PKG_VERSION"),

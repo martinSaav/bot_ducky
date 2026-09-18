@@ -36,6 +36,8 @@ class Report:
     stale_after: float | None
     #: ID de partida activa reportado por el agente (ej. daemon de Valorant).
     match_id: str | None = None
+    #: Datos en vivo extraídos del cliente del juego por el agente.
+    metadata: dict[str, Any] | None = None
 
     @property
     def stale(self) -> bool:
@@ -82,6 +84,7 @@ class GameArbiter:
         game: str | None,
         *,
         match_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
         stale_after: float | None = None,
         force: bool = False,
     ) -> None:
@@ -92,6 +95,7 @@ class GameArbiter:
             at=time.monotonic(),
             stale_after=stale_after,
             match_id=match_id,
+            metadata=metadata,
         )
 
         if previous is not None and previous.game == game and not previous.stale and not force:
