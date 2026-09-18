@@ -1,4 +1,4 @@
-"""Valorant via HenrikDev (wrapper comunitario).
+"""Valorant via HenrikDev (wrapper comunitario) y API local del cliente.
 
 Riot no da acceso publico a la API de Valorant, asi que se usa el estandar
 de facto de la comunidad: https://docs.henrikdev.xyz
@@ -6,16 +6,32 @@ La key se pide en su Discord y va en el header Authorization.
 
 Las respuestas se parsean de forma defensiva y con fallback de version,
 porque es una API de terceros que cambia sin previo aviso.
+
+Ademas, para saber si hay una partida activa, se lee la API local del
+cliente de Valorant (similar al LCU de LoL). El cliente escribe un lockfile
+cuando esta abierto; ese lockfile tiene el puerto y la contrasena para
+conectarse a https://127.0.0.1:{port}.
 """
 from __future__ import annotations
 
+import base64
 import logging
+import ssl
+from pathlib import Path
 from typing import Any
 
 import aiohttp
 
 from ..config import cfg
 from ..util import TTLCache, split_riot_id
+
+# Ruta del lockfile que Valorant escribe mientras esta abierto.
+_LOCKFILE = Path.home() / "AppData" / "Local" / "Riot Games" / "Riot Client" / "Config" / "lockfile"
+
+# Contexto SSL que acepta el certificado auto-firmado del cliente local.
+_SSL_CTX = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+_SSL_CTX.check_hostname = False
+_SSL_CTX.verify_mode = ssl.CERT_NONE
 
 log = logging.getLogger("riot.valorant")
 
@@ -37,9 +53,84 @@ def _dig(data: Any, *path: str, default: Any = None) -> Any:
     return default if cur is None else cur
 
 
+class ValorantLocalClient:
+    """Accede a la API local del cliente de Valorant via lockfile.
+
+    No requiere configuracion adicional; funciona mientras el juego esta
+    abierto en la misma maquina donde corre el bot.
+    """
+
+    def __init__(self, session: aiohttp.ClientSession):
+        self.session = session
+        self._puuid: str | None = None
+
+    @property
+    def configured(self) -> bool:
+        """True si el lockfile de Valorant existe (cliente abierto)."""
+        return _LOCKFILE.exists()
+
+    def _read_lockfile(self) -> tuple[int, str] | None:
+        """Devuelve (puerto, contrasena) del lockfile, o None si no existe."""
+        try:
+            parts = _LOCKFILE.read_text(encoding="utf-8").strip().split(":")
+            # formato: name:pid:port:password:protocol
+            if len(parts) < 5:
+                return None
+            return int(parts[2]), parts[3]
+        except (OSError, ValueError):
+            return None
+
+    def _auth_header(self, password: str) -> str:
+        token = base64.b64encode(f"riot:{password}".encode()).decode()
+        return f"Basic {token}"
+
+    async def _local_get(self, port: int, password: str, path: str) -> Any | None:
+        url = f"https://127.0.0.1:{port}{path}"
+        headers = {"Authorization": self._auth_header(password)}
+        try:
+            conn = aiohttp.TCPConnector(ssl=_SSL_CTX)
+            async with aiohttp.ClientSession(connector=conn) as s:
+                async with s.get(url, headers=headers) as resp:
+                    if resp.status == 404:
+                        return None
+                    if resp.status >= 400:
+                        return None
+                    return await resp.json(content_type=None)
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def local_puuid(self) -> str | None:
+        """PUUID de la cuenta logueada en el cliente local."""
+        if self._puuid:
+            return self._puuid
+        lf = self._read_lockfile()
+        if lf is None:
+            return None
+        port, password = lf
+        data = await self._local_get(port, password, "/chat/v1/session")
+        puuid = (data or {}).get("subject")
+        if puuid:
+            self._puuid = puuid
+        return puuid
+
+    async def active_match_id(self) -> str | None:
+        """Devuelve el matchID de la partida activa, o None si no esta en partida."""
+        lf = self._read_lockfile()
+        if lf is None:
+            self._puuid = None  # el cliente se cerro; limpiamos el cache
+            return None
+        port, password = lf
+        puuid = await self.local_puuid()
+        if not puuid:
+            return None
+        data = await self._local_get(port, password, f"/core-game/v1/player/{puuid}")
+        return (data or {}).get("matchID") or None
+
+
 class ValorantClient:
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
+        self.local = ValorantLocalClient(session)
         self._rank = TTLCache(120)
         self._match = TTLCache(120)
 

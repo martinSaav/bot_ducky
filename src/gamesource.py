@@ -34,6 +34,8 @@ class Report:
     at: float
     #: Segundos tras los cuales la fuente se considera muerta. None = nunca.
     stale_after: float | None
+    #: ID de partida activa reportado por el agente (ej. daemon de Valorant).
+    match_id: str | None = None
 
     @property
     def stale(self) -> bool:
@@ -79,15 +81,25 @@ class GameArbiter:
         source: str,
         game: str | None,
         *,
+        match_id: str | None = None,
         stale_after: float | None = None,
         force: bool = False,
     ) -> None:
         """Una fuente informa que juego ve. Siempre es el estado absoluto."""
         previous = self._reports.get(source)
-        self._reports[source] = Report(game=game, at=time.monotonic(), stale_after=stale_after)
+        self._reports[source] = Report(
+            game=game,
+            at=time.monotonic(),
+            stale_after=stale_after,
+            match_id=match_id,
+        )
 
         if previous is not None and previous.game == game and not previous.stale and not force:
-            return  # latido sin novedad: no reprogramamos nada
+            # Si solo cambia el match_id (nueva partida con mismo juego), reprogramamos.
+            if match_id and previous.match_id != match_id:
+                log.debug("Source '%s' reports new match_id %r", source, match_id)
+                self._schedule(self._debounce_for(source))
+            return
 
         log.debug("Source '%s' reports %r", source, game)
         self._schedule(self._debounce_for(source))
@@ -322,10 +334,25 @@ class GameArbiter:
                 return None
             return f"lol:{game_id}"
 
-        log.info(
-            "Not creating automatic Valorant prediction: Discord confirms the "
-            "game is open, but there is no verifiable active match"
-        )
+        if "valorant" in normalized_game:
+            # Opcion 1: el daemon de Valorant (en la PC de la streamer) ya
+            # mando el match_id en el reporte del agente.
+            agent_report = self._reports.get("agent")
+            if agent_report and not agent_report.stale and agent_report.match_id:
+                return f"valorant:{agent_report.match_id}"
+
+            # Opcion 2: fallback para cuando el bot corre en la misma maquina.
+            if self.valorant is not None and self.valorant.local.configured:
+                match_id = await self.valorant.local.active_match_id()
+                if match_id:
+                    return f"valorant:{match_id}"
+
+            log.info(
+                "Not creating automatic Valorant prediction: "
+                "no active match reported (daemon not running or not in a match)"
+            )
+            return None
+
         return None
 
     def _schedule_prediction_result(self) -> None:

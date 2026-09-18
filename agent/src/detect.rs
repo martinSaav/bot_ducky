@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 use crate::config::GameRule;
+use crate::valorant;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detected {
@@ -16,6 +17,8 @@ pub struct Detected {
     pub game: String,
     /// Ejecutable que disparo la coincidencia. Solo para el log.
     pub exe: String,
+    /// ID de la partida activa (solo Valorant, via API local del cliente).
+    pub match_id: Option<String>,
 }
 
 struct Rule {
@@ -72,7 +75,14 @@ impl Detector {
             .map(|p| p.name().to_string_lossy().to_lowercase())
             .collect();
 
-        self.select_winner(&running)
+        let mut detected = self.select_winner(&running)?;
+
+        // Si el juego es Valorant, consultamos la API local para el match_id.
+        if detected.game.to_lowercase().contains("valorant") {
+            detected.match_id = valorant::active_match_id();
+        }
+
+        Some(detected)
     }
 
     /// Logica de seleccion pura: dado un slice de nombres de procesos (ya en
@@ -88,9 +98,8 @@ impl Detector {
                     let candidate = Detected {
                         game: rule.game.clone(),
                         exe: original.clone(),
+                        match_id: None,
                     };
-                    // Empate de prioridad: gana el primero de agent.toml,
-                    // asi el orden del archivo es un desempate predecible.
                     if best.as_ref().map_or(true, |(p, _)| rule.priority > *p) {
                         best = Some((rule.priority, candidate));
                     }

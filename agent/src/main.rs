@@ -8,6 +8,7 @@ mod clock;
 mod config;
 mod detect;
 mod report;
+mod valorant;
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -95,8 +96,13 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
                 Ok(()) => {
                     if changed {
                         match &current {
-                            Some(d) => log.line(&format!("-> {} ({})", d.game, d.exe)),
-                            None => log.line("-> sin juego"),
+                            Some(d) => {
+                                let match_part = d.match_id.as_deref()
+                                    .map(|id| format!(" [match: {}]", &id[..id.len().min(36)]))
+                                    .unwrap_or_default();
+                                log.line(&format!("--> {} ({}){}", d.game, d.exe, match_part));
+                            }
+                            None => log.line("--> sin juego"),
                         }
                     }
                     if failures > 0 {

@@ -7,7 +7,7 @@ description = "Detecta que juego esta corriendo y se lo avisa al bot de Twitch"
 [dependencies]
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 # Sin TLS a proposito: el enlace ya va cifrado por Tailscale (WireGuard) y
-# rustls arrastra `ring`, que necesita un compilador de C para armarse.
+# las llamadas HTTPS a la API local de Valorant las delega a PowerShell.
 ureq = { version = "2.10", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

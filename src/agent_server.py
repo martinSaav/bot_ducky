@@ -62,6 +62,12 @@ class AgentServer:
                 return web.json_response({"error": "'game' debe ser texto o null"}, status=400)
             game = game.strip()[:100] or None
 
+        match_id = data.get("match_id")
+        if match_id is not None:
+            if not isinstance(match_id, str):
+                return web.json_response({"error": "'match_id' debe ser texto o null"}, status=400)
+            match_id = match_id.strip()[:200] or None
+
         host = data.get("host")
         if isinstance(host, str) and host != self._last_host:
             log.info(
@@ -70,7 +76,7 @@ class AgentServer:
             )
             self._last_host = host
 
-        await self.arbiter.report("agent", game, stale_after=STALE_AFTER)
+        await self.arbiter.report("agent", game, match_id=match_id, stale_after=STALE_AFTER)
         return web.Response(status=204)
 
     async def handle_health(self, request: web.Request) -> web.Response:
