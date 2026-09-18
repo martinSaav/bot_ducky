@@ -25,6 +25,8 @@ o la PC lo tiene apagado, el bot vuelve solo a la presencia de Discord después 
   "source": "agent",
   "game": "VALORANT",
   "exe": "VALORANT-Win64-Shipping.exe",
+  "match_id": "8b51c8b3-...",
+  "metadata": null,
   "host": "PC-DE-CHAAR",
   "agent_version": "0.1.0",
   "sent_at": "2026-09-09T22:16:19Z"
@@ -56,8 +58,8 @@ runtime — no hace falta instalar nada en la PC de destino).
 
 Si usás el toolchain `x86_64-pc-windows-gnu` de rustup sin Visual Studio, no
 necesitás compilador de C: las dependencias están elegidas para evitarlo. Por eso
-el tiempo se resuelve con dos llamadas a kernel32 en vez de usar `chrono`, y la
-build va sin TLS (ver más abajo).
+el tiempo se resuelve con llamadas a kernel32 y las consultas HTTPS a las APIs locales
+de Riot (Valorant y LoL) se delegan a PowerShell, evitando compilar dependencias de TLS pesadas en Rust.
 
 ## Configurar
 
@@ -161,4 +163,6 @@ src/config.rs    lectura y validación de agent.toml
 src/detect.rs    enumeración de procesos y lista blanca
 src/report.rs    envío HTTP al bot
 src/clock.rs     fecha y hora vía kernel32, sin dependencias
+src/valorant.rs  extracción de partida activa vía Riot LCU API
+src/lol.rs       extracción de datos en vivo vía Live Client Data API
 ```
