@@ -117,7 +117,7 @@ class Registry:
              help="resume el chat reciente", cooldown=60)
         self.add("lrank", self.cmd_rank, aliases=("rank", "elo", "lol"),
                  help="elo de LoL del streamer", cooldown=10)
-        self.add("lmatch", self.cmd_live, aliases=("partida", "live", "game", "enpartida"),
+        self.add("lmatch", self.cmd_live, aliases=("partida", "live", "enpartida"),
                  help="partida de LoL en curso", cooldown=10)
         self.add("vrank", self.cmd_valorant, aliases=("valorant", "val"),
                  help="rango de Valorant", cooldown=10)
@@ -134,7 +134,7 @@ class Registry:
              help="cancela la prediction actual", cooldown=5, mod_only=True)
         self.add("uptime", self.cmd_uptime, help="tiempo en vivo", cooldown=20)
         self.add("clip", self.cmd_clip, help="crea un clip", cooldown=30)
-        self.add("categoria", self.cmd_category, aliases=("cat", "juego"),
+        self.add("categoria", self.cmd_category, aliases=("cat", "juego", "game"),
                  help="cambia la categoria (mods)", cooldown=5, mod_only=True)
         self.add("auto", self.cmd_auto,
                  help="on/off del auto-categorizador (mods)", cooldown=5, mod_only=True)
