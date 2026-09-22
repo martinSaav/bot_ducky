@@ -54,10 +54,11 @@ class LolClient:
         self._live = TTLCache(30)
         self._champs: dict[int, str] = {}
         self._champs_cache = TTLCache(12 * 3600)
+        self._key_dead = False  # Se activa cuando Riot devuelve 401/403
 
     @property
     def configured(self) -> bool:
-        return bool(cfg.riot_api_key and cfg.riot_id)
+        return bool(cfg.riot_api_key and cfg.riot_id) and not self._key_dead
 
     # ------------------------------------------------------------------
     async def _get(self, host: str, path: str) -> Any | None:
@@ -69,6 +70,14 @@ class LolClient:
                 return None
             body = await resp.json(content_type=None)
             if resp.status == 401 or resp.status == 403:
+                if not self._key_dead:
+                    self._key_dead = True
+                    log.warning(
+                        "Riot API key invalid or expired (HTTP %s). "
+                        "Disabling Riot calls until bot restarts. "
+                        "Renew the key at https://developer.riotgames.com",
+                        resp.status,
+                    )
                 raise RiotError(
                     "La API key de Riot es invalida o expiro "
                     "(las keys de desarrollo duran 24 h)."

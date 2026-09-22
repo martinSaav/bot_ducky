@@ -17,6 +17,7 @@ from typing import Any, Awaitable, Callable
 
 from .category import CategoryResolver
 from .config import cfg
+from .riot.lol import RiotError
 from .twitch.helix import Helix
 
 log = logging.getLogger("gamesource")
@@ -244,6 +245,10 @@ class GameArbiter:
                         "Voten Gana o Pierde."
                     )
                 )
+        except RiotError as exc:
+            # Key expirada o inválida: el LolClient ya logueó el WARNING y se
+            # marcó como no configurado; no hace falta el traceback completo.
+            log.warning("Prediction cancelled due to Riot API error: %s", exc)
         except Exception:  # noqa: BLE001 - una prediction no debe apagar el arbitro
             log.exception("Failed to create prediction for %s", game_name)
 
@@ -409,7 +414,7 @@ class GameArbiter:
         if "valorant" in game:
             log.info(
                 "Not resolving Valorant prediction automatically: "
-                "requiere !vwin o !vloss"
+                "use !vwin or !vloss"
             )
             return None
         return None
@@ -417,7 +422,7 @@ class GameArbiter:
     async def _check_lol_prediction_finished(self, prediction: dict[str, Any]) -> None:
         """Detect a finished LoL game even when Discord still shows LoL."""
         match_key = str(prediction.get("match_key", ""))
-        if self.lol is None or not match_key.startswith("lol:"):
+        if self.lol is None or not self.lol.configured or not match_key.startswith("lol:"):
             return
         active_game_id = await self.lol.active_game_id()
         if active_game_id is None:
