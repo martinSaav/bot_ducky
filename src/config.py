@@ -76,7 +76,7 @@ class Config:
     llm_max_messages = _int("LLM_MAX_MESSAGES", 300)
     llm_min_stream_minutes = _int("LLM_MIN_STREAM_MINUTES", 15)
     embedding_model = _str("EMBEDDING_MODEL", "models/gemini-embedding-2")
-    embedding_batch_size = _int("EMBEDDING_BATCH_SIZE", 20)
+    embedding_batch_size = _int("EMBEDDING_BATCH_SIZE", 100)
 
     chat_ignored_authors = {
         author.strip().lower()

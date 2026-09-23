@@ -32,10 +32,10 @@ import { timer, switchMap } from 'rxjs';
     .log-container::-webkit-scrollbar { width: 4px; }
     .log-container::-webkit-scrollbar-thumb { background: rgba(167,139,250,0.3); border-radius: 2px; }
     .log-line { padding: 1px 4px; border-radius: 2px; word-break: break-all; white-space: pre-wrap; color: rgba(255,255,255,0.65); }
-    .log-line.error { color: #f87171; background: rgba(239,68,68,0.06); }
-    .log-line.warning { color: #fbbf24; }
-    .log-line.info { color: rgba(255,255,255,0.7); }
-    .log-line.debug { color: rgba(255,255,255,0.35); }
+    .log-line.error { color: #ef4444; background: rgba(239,68,68,0.1); }
+    .log-line.warning { color: #fbbf24; background: rgba(251,191,36,0.1); }
+    .log-line.info { color: #34d399; }
+    .log-line.debug { color: #9ca3af; }
     .empty-log { color: rgba(255,255,255,0.3); font-size: 13px; padding: 12px 0; text-align: center; }
   `]
 })

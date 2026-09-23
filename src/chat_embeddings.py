@@ -149,27 +149,35 @@ class EmbeddingWorker:
     async def _run(self) -> None:
         """Worker principal: consume la cola en lotes y persiste embeddings."""
         while True:
-            # Espera el primer item.
+            # Espera el primer item de forma indefinida.
             first = await self._queue.get()
             if first is None:
                 self._queue.task_done()
                 return
             batch: list[tuple[int, str]] = [first]
 
-            # Drena lo que haya sin bloquear hasta alcanzar batch_size.
+            # Armar el lote esperando hasta 5 segundos para acumular más mensajes
+            # antes de golpear la API.
+            start_time = asyncio.get_running_loop().time()
+            timeout = 5.0
+
             while len(batch) < self._batch_size:
+                elapsed = asyncio.get_running_loop().time() - start_time
+                if elapsed >= timeout:
+                    break
                 try:
-                    item = self._queue.get_nowait()
+                    item = await asyncio.wait_for(
+                        self._queue.get(), timeout=timeout - elapsed
+                    )
                     if item is None:
-                        # Señal de stop en medio de un batch: procesamos lo que hay
-                        # y salimos.
+                        # Señal de stop en medio de un batch
                         await self._process_batch(batch)
                         self._queue.task_done()
                         for _ in batch:
                             self._queue.task_done()
                         return
                     batch.append(item)
-                except asyncio.QueueEmpty:
+                except asyncio.TimeoutError:
                     break
 
             try:
