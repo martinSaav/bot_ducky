@@ -29,6 +29,7 @@ from src.chat_control import ChatControlServer
 from src.clips.pipeline import ClipPipeline
 from src.commands.registry import Registry
 from src.config import cfg
+from src.dashboard.status import StatusProvider
 from src.discord_presence.bot import PresenceBot
 from src.drive import DriveUploader
 from src.gamesource import GameArbiter
@@ -262,6 +263,20 @@ async def main() -> int:
         arbiter = GameArbiter(
             helix, resolver, broadcaster_id, state=state, lol=lol, valorant=valorant,
         )
+
+        # --- dashboard status provider ------------------------------------
+        status_provider = StatusProvider(
+            arbiter=arbiter,
+            state=state,
+            history=history,
+            lol=lol,
+            valorant=valorant,
+        )
+        status_provider.channel = cfg.twitch_channel
+        status_provider.bot_login = cfg.bot_login
+        status_provider.db_active = database_history is not None
+        status_provider.llm_active = llm_summary.configured
+        status_provider.embeddings_active = embedding_worker is not None
         svc = Services(
             session=session,
             tokens=tokens,
@@ -291,6 +306,12 @@ async def main() -> int:
                     log.info("Message saved from %s", message.display_name)
                 if accepted and database_history is not None:
                     database_history.enqueue(message)
+                if accepted:
+                    await status_provider.broadcaster.broadcast("chat", {
+                        "author": message.display_name,
+                        "text": message.text,
+                        "ts": __import__("time").time(),
+                    })
                 await registry.dispatch(message)
 
             chat = ChatClient(
@@ -302,6 +323,7 @@ async def main() -> int:
             chat_control = ChatControlServer(chat)
             await chat_control.start()
             log.info("Chat bot: active as %s", cfg.bot_login)
+            status_provider.chat_active = True
         else:
             log.warning(
                 "Chat bot: disabled (missing 'python tools/auth_twitch.py bot')"
@@ -310,10 +332,14 @@ async def main() -> int:
         # --- 1a. agente de escritorio (fuente principal) ------------------
         agent_server: AgentServer | None = None
         if cfg.agent_token:
-            agent_server = AgentServer(arbiter)
+            agent_server = AgentServer(arbiter, status_provider=status_provider)
             await agent_server.start()
+            status_provider.agent_active = True
         else:
             log.warning("Desktop agent: disabled (missing AGENT_TOKEN)")
+            # Aún así levantamos el server para el dashboard.
+            agent_server = AgentServer(None, status_provider=status_provider)  # type: ignore[arg-type]
+            await agent_server.start()
 
         # --- 1b. presencia de Discord (respaldo) --------------------------
         if cfg.discord_token and cfg.discord_streamer_id:
@@ -323,6 +349,7 @@ async def main() -> int:
                 presence.start(cfg.discord_token), name="discord"
             )
             log.info("Discord presence: active (agent fallback)")
+            status_provider.discord_active = True
         else:
             log.warning(
                 "Discord presence: disabled (missing DISCORD_BOT_TOKEN or DISCORD_STREAMER_ID)"
@@ -347,6 +374,7 @@ async def main() -> int:
         if cfg.clips_enabled and drive.configured:
             tasks["clips"] = asyncio.create_task(clips.scheduler(), name="clips")
             log.info("Clips pipeline: active (daily at %s)", cfg.clips_run_at)
+            status_provider.clips_active = True
         elif cfg.clips_enabled:
             log.warning(
                 "Clips pipeline: disabled (missing GDRIVE_FOLDER_ID or %s)", cfg.sa_path

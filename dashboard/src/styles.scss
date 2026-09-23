@@ -1,0 +1,206 @@
+@use '@angular/material' as mat;
+
+// ─── Custom dark theme ──────────────────────────────────────────────────────
+$dashboard-theme: mat.define-theme((
+  color: (
+    theme-type: dark,
+    primary: mat.$violet-palette,
+    tertiary: mat.$cyan-palette,
+  ),
+  typography: (
+    brand-family: 'Inter, sans-serif',
+    plain-family: 'Inter, sans-serif',
+  ),
+  density: (scale: -1),
+));
+
+:root {
+  @include mat.all-component-themes($dashboard-theme);
+}
+
+// ─── Google Fonts ────────────────────────────────────────────────────────────
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+
+// ─── Reset & base ────────────────────────────────────────────────────────────
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: 'Inter', sans-serif;
+  background: #0d0d14;
+  color: rgba(255, 255, 255, 0.88);
+  -webkit-font-smoothing: antialiased;
+}
+
+// ─── App shell ───────────────────────────────────────────────────────────────
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(145, 71, 255, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 80%, rgba(56, 189, 248, 0.07) 0%, transparent 50%),
+    #0d0d14;
+}
+
+// ─── Topbar ──────────────────────────────────────────────────────────────────
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(13, 13, 20, 0.8);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #9147ff;
+  box-shadow: 0 0 10px rgba(145, 71, 255, 0.7);
+  animation: pulse-logo 2s ease-in-out infinite;
+}
+
+@keyframes pulse-logo {
+  0%, 100% { box-shadow: 0 0 10px rgba(145, 71, 255, 0.7); }
+  50%       { box-shadow: 0 0 20px rgba(145, 71, 255, 1); }
+}
+
+.topbar-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.topbar-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 400;
+}
+
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #f87171;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f87171;
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+// ─── Dashboard grid ──────────────────────────────────────────────────────────
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-areas:
+    "col1 col2 col3"
+    "col4 col5 col6"
+    "full full full";
+  gap: 16px;
+  padding: 20px 24px;
+  flex: 1;
+}
+
+.grid-col-1  { grid-area: col1; }
+.grid-col-2  { grid-area: col2; }
+.grid-col-3  { grid-area: col3; }
+.grid-col-4  { grid-area: col4; }
+.grid-col-5  { grid-area: col5; }
+.grid-col-6  { grid-area: col6; }
+.grid-col-full { grid-area: full; }
+
+@media (max-width: 1100px) {
+  .dash-grid {
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-areas:
+      "col1 col2"
+      "col3 col4"
+      "col5 col6"
+      "full full";
+  }
+}
+
+@media (max-width: 700px) {
+  .dash-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "col1" "col2" "col3" "col4" "col5" "col6" "full";
+    padding: 12px;
+    gap: 12px;
+  }
+}
+
+// ─── Cards ───────────────────────────────────────────────────────────────────
+.dash-card {
+  background: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 16px !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  height: 100%;
+
+  &:hover {
+    border-color: rgba(145, 71, 255, 0.25) !important;
+    box-shadow: 0 0 24px rgba(145, 71, 255, 0.08);
+  }
+}
+
+.card-icon {
+  color: #9147ff !important;
+  background: rgba(145, 71, 255, 0.15) !important;
+  border-radius: 8px !important;
+  padding: 4px !important;
+  font-size: 20px !important;
+  width: 32px !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+mat-card-title {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+}
+
+mat-card-subtitle {
+  font-size: 12px !important;
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+mat-card-content {
+  padding-top: 12px !important;
+}
