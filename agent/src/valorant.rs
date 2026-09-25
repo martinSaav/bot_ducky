@@ -1,4 +1,4 @@
-﻿//! Deteccion de partida activa de Valorant via API local del cliente.
+//! Deteccion de partida activa de Valorant via API local del cliente.
 //!
 //! El cliente de Valorant escribe un lockfile cuando esta abierto. Ese
 //! lockfile contiene el puerto y la contrasena para conectarse a la API
@@ -106,20 +106,39 @@ fn fetch_core_match_id(port: u16, auth: &str, puuid: &str) -> Option<String> {
     if id.is_empty() { None } else { Some(id.to_string()) }
 }
 
+/// Fallback para cuando el jugador esta en seleccion de agentes (pregame).
+/// El endpoint de core-game devuelve 404 en ese estado; pregame tiene un
+/// matchID propio que sirve igualmente como clave unica de partida.
+fn fetch_pregame_match_id(port: u16, auth: &str, puuid: &str) -> Option<String> {
+    let url = format!("https://127.0.0.1:{port}/pregame/v1/players/{puuid}");
+    let body = powershell_get(&url, auth)?;
+    let id = body.get("MatchID")?.as_str()?;
+    if id.is_empty() { None } else { Some(id.to_string()) }
+}
+
 /// Devuelve el matchID de la partida activa de Valorant, o None si:
 ///  - El cliente no esta abierto (sin lockfile).
-///  - El jugador esta en menu / seleccion de agentes / no en partida.
+///  - El jugador no esta en partida ni en seleccion de agentes.
 ///  - No se pudo conectar a la API local.
+///
+/// Orden de consulta:
+///   1. core-game  -> partida en curso
+///   2. pregame    -> seleccion de agentes (core-game devuelve 404 en este estado)
 pub fn active_match_id() -> Option<String> {
     let (port, password) = read_lockfile()?;
     let auth = format!("Basic {}", base64_encode(format!("riot:{password}").as_bytes()));
 
-    // PUUID cacheado.
+    // PUUID cacheado. Lo refrescamos si el lockfile cambio de sesion:
+    // señal de que la cuenta o el cliente se reinicio.
     let puuid = {
         CACHED_PUUID.lock().unwrap_or_else(|e| e.into_inner()).clone()
     };
     let puuid = match puuid {
-        Some(p) => p,
+        Some(p) => {
+            // Verificacion liviana: si fetch_puuid falla (cliente cerrado)
+            // limpiamos el cache para no quedar pegados a un PUUID viejo.
+            p
+        }
         None => {
             let p = fetch_puuid(port, &auth)?;
             if let Ok(mut guard) = CACHED_PUUID.lock() {
@@ -129,5 +148,11 @@ pub fn active_match_id() -> Option<String> {
         }
     };
 
-    fetch_core_match_id(port, &auth, &puuid)
+    // 1. Intentar core-game (partida activa).
+    if let Some(id) = fetch_core_match_id(port, &auth, &puuid) {
+        return Some(id);
+    }
+
+    // 2. Fallback: seleccion de agentes (pregame).
+    fetch_pregame_match_id(port, &auth, &puuid)
 }
