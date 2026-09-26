@@ -31,14 +31,29 @@ fn lockfile_path() -> PathBuf {
 
 /// Devuelve (puerto, contrasena) del lockfile, o None si Valorant no esta abierto.
 fn read_lockfile() -> Option<(u16, String)> {
-    let content = std::fs::read_to_string(lockfile_path()).ok()?;
+    let path = lockfile_path();
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[valorant] lockfile no encontrado en {}: {}", path.display(), e);
+            return None;
+        }
+    };
     // formato: name:pid:port:password:protocol
     let parts: Vec<&str> = content.trim().splitn(6, ':').collect();
     if parts.len() < 5 {
+        eprintln!("[valorant] lockfile con formato inesperado ({} partes): {:?}", parts.len(), content.trim());
         return None;
     }
-    let port: u16 = parts[2].parse().ok()?;
+    let port: u16 = match parts[2].parse() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[valorant] no se pudo parsear el puerto del lockfile '{}': {}", parts[2], e);
+            return None;
+        }
+    };
     let password = parts[3].to_string();
+    eprintln!("[valorant] lockfile ok -> puerto {}", port);
     Some((port, password))
 }
 
@@ -61,8 +76,6 @@ fn base64_encode(input: &[u8]) -> String {
 /// Hace un GET HTTPS via PowerShell, aceptando certificados auto-firmados.
 /// Devuelve el cuerpo JSON parseado, o None si fallo.
 fn powershell_get(url: &str, auth_header: &str) -> Option<Value> {
-    // Usamos powershell.exe -NoProfile -NonInteractive para que sea rapido.
-    // OutputEncoding UTF8 evita problemas con caracteres no ASCII.
     let script = format!(
         r#"
 $ErrorActionPreference = 'Stop'
@@ -77,26 +90,50 @@ try {{
         auth = auth_header,
     );
 
-    let output = Command::new("powershell.exe")
+    let output = match Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .output()
-        .ok()?;
+    {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("[valorant] no se pudo lanzar powershell.exe: {}", e);
+            return None;
+        }
+    };
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("[valorant] powershell fallo para {} | stderr: {}", url, stderr.trim());
         return None;
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
+        eprintln!("[valorant] {} -> 404 (no en partida/pregame en este endpoint)", url);
         return None;
     }
-    serde_json::from_str(trimmed).ok()
+    match serde_json::from_str(trimmed) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            eprintln!("[valorant] respuesta de {} no es JSON valido: {} | raw: {}", url, e, &trimmed[..trimmed.len().min(120)]);
+            None
+        }
+    }
 }
 
 fn fetch_puuid(port: u16, auth: &str) -> Option<String> {
     let url = format!("https://127.0.0.1:{port}/chat/v1/session");
     let body = powershell_get(&url, auth)?;
-    body.get("subject")?.as_str().map(|s| s.to_string())
+    match body.get("subject").and_then(|v| v.as_str()) {
+        Some(s) => {
+            eprintln!("[valorant] puuid obtenido: {}...{}", &s[..s.len().min(8)], &s[s.len().saturating_sub(4)..]);
+            Some(s.to_string())
+        }
+        None => {
+            eprintln!("[valorant] /chat/v1/session no devolvio 'subject': {:?}", body);
+            None
+        }
+    }
 }
 
 fn fetch_core_match_id(port: u16, auth: &str, puuid: &str) -> Option<String> {
@@ -135,8 +172,7 @@ pub fn active_match_id() -> Option<String> {
     };
     let puuid = match puuid {
         Some(p) => {
-            // Verificacion liviana: si fetch_puuid falla (cliente cerrado)
-            // limpiamos el cache para no quedar pegados a un PUUID viejo.
+            eprintln!("[valorant] usando puuid cacheado");
             p
         }
         None => {
@@ -150,9 +186,19 @@ pub fn active_match_id() -> Option<String> {
 
     // 1. Intentar core-game (partida activa).
     if let Some(id) = fetch_core_match_id(port, &auth, &puuid) {
+        eprintln!("[valorant] match_id via core-game: {}...{}", &id[..id.len().min(8)], &id[id.len().saturating_sub(4)..]);
         return Some(id);
     }
 
     // 2. Fallback: seleccion de agentes (pregame).
-    fetch_pregame_match_id(port, &auth, &puuid)
+    match fetch_pregame_match_id(port, &auth, &puuid) {
+        Some(id) => {
+            eprintln!("[valorant] match_id via pregame: {}...{}", &id[..id.len().min(8)], &id[id.len().saturating_sub(4)..]);
+            Some(id)
+        }
+        None => {
+            eprintln!("[valorant] sin match_id: no esta en core-game ni pregame (menu o lobby)");
+            None
+        }
+    }
 }
