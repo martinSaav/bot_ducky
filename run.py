@@ -216,16 +216,17 @@ async def main() -> int:
         )
         database_history: PostgresChatHistory | None = None
         if cfg.database_url:
+            database_history = PostgresChatHistory(
+                cfg.database_url,
+                ignored_authors=cfg.chat_ignored_authors | {cfg.bot_login.lower()},
+            )
             try:
-                database_history = PostgresChatHistory(
-                    cfg.database_url,
-                    ignored_authors=cfg.chat_ignored_authors | {cfg.bot_login.lower()},
-                )
                 await database_history.start()
                 log.info("PostgreSQL history: active")
             except Exception:  # noqa: BLE001 - database is optional
-                database_history = None
-                log.exception("PostgreSQL history: disabled; bot will keep it in memory")
+                log.warning(
+                    "PostgreSQL history: not available at startup, retrying in background"
+                )
         llm_summary = LlmSummary(
             session,
             cfg.llm_api_key,
@@ -304,8 +305,8 @@ async def main() -> int:
                 accepted = history.add(message)
                 if accepted:
                     log.info("Message saved from %s", message.display_name)
-                if accepted and database_history is not None:
-                    database_history.enqueue(message)
+                if accepted and svc.database_history is not None:
+                    svc.database_history.enqueue(message)
                 if accepted:
                     await status_provider.broadcaster.broadcast("chat", {
                         "author": message.display_name,
@@ -366,6 +367,47 @@ async def main() -> int:
             ),
             name="stream-monitor",
         )
+
+        # --- reconexion DB en background ------------------------------------
+        # Si Postgres no estaba disponible al arranque, reintentamos cada 30s
+        # hasta conectar. Una vez conectado, activamos embeddings tambien.
+        if cfg.database_url and database_history is not None and database_history._pool is None:  # noqa: SLF001
+            async def _reconnect_db() -> None:
+                delay = 30
+                while not stop.is_set():
+                    try:
+                        await asyncio.wait_for(stop.wait(), timeout=delay)
+                        return  # stop fue activado
+                    except asyncio.TimeoutError:
+                        pass
+                    try:
+                        await database_history.start()
+                        log.info("PostgreSQL history: reconnected successfully")
+                        svc.database_history = database_history
+                        status_provider.db_active = True
+                        # Activar embeddings si todavia no estan corriendo.
+                        if svc.embeddings is None and cfg.llm_api_key:
+                            try:
+                                ew = EmbeddingWorker(
+                                    pool=database_history._pool,  # noqa: SLF001
+                                    session=session,
+                                    api_key=cfg.llm_api_key,
+                                    model=cfg.embedding_model,
+                                    base_url=cfg.llm_base_url,
+                                    batch_size=cfg.embedding_batch_size,
+                                )
+                                await ew.start()
+                                svc.embeddings = ew
+                                database_history._embedding_worker = ew  # noqa: SLF001
+                                status_provider.embeddings_active = True
+                                log.info("Embeddings: active after DB reconnect")
+                            except Exception:  # noqa: BLE001
+                                log.exception("Embeddings: failed to start after DB reconnect")
+                        return  # ya conectamos, no hace falta seguir reintentando
+                    except Exception:  # noqa: BLE001
+                        log.warning("PostgreSQL history: still unavailable, retrying in %ds", delay)
+
+            tasks["db-reconnect"] = asyncio.create_task(_reconnect_db(), name="db-reconnect")
 
         # --- 3. clips -----------------------------------------------------
         drive = DriveUploader(session)
