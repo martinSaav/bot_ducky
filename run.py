@@ -121,6 +121,8 @@ async def monitor_stream(
                 session_started = time.time()
                 stream_id = None
                 session_game = None
+        except aiohttp.ClientConnectionError as exc:
+            log.warning("Network error checking stream status: %s. Retrying in %ss", exc, cfg.presence_check_seconds)
         except Exception:  # noqa: BLE001 - monitor must not stop the bot
             log.exception("Could not check stream status")
         try:

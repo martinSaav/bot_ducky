@@ -1,6 +1,7 @@
 """OAuth2 de Twitch: intercambio de code, refresh automático y app token."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import urllib.parse
@@ -136,13 +137,22 @@ class TwitchAuth:
             "client_secret": cfg.twitch_client_secret,
             "grant_type": "client_credentials",
         }
-        async with self.session.post(f"{AUTH_BASE}/token", data=payload) as resp:
-            body = await resp.json(content_type=None)
-            if resp.status != 200:
-                raise TwitchAuthError(f"App token falló ({resp.status}): {body}")
-        self._app_token = body["access_token"]
-        self._app_expires_at = time.time() + float(body.get("expires_in", 5_000_000))
-        return self._app_token
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                async with self.session.post(f"{AUTH_BASE}/token", data=payload) as resp:
+                    body = await resp.json(content_type=None)
+                    if resp.status != 200:
+                        raise TwitchAuthError(f"App token falló ({resp.status}): {body}")
+                self._app_token = body["access_token"]
+                self._app_expires_at = time.time() + float(body.get("expires_in", 5_000_000))
+                return self._app_token
+            except aiohttp.ClientConnectionError as exc:
+                last_exc = exc
+                wait = 2 ** attempt
+                log.warning("app_bearer: network error (%s), retrying in %ss (attempt %d/3)", exc, wait, attempt + 1)
+                await asyncio.sleep(wait)
+        raise TwitchAuthError(f"app_bearer falló tras 3 intentos: {last_exc}")
 
 
 async def exchange_code(session: aiohttp.ClientSession, code: str) -> dict[str, Any]:
