@@ -155,6 +155,26 @@ class PostgresChatHistory:
                 game_name,
             )
 
+    async def get_open_session(self, stream_id: str) -> datetime | None:
+        """Devuelve started_at de una sesion abierta (sin ended_at), o None.
+
+        Permite recuperar la hora de inicio real del stream tras un reinicio
+        del bot, evitando perder el contexto de una sesion larga.
+        """
+        if self._pool is None:
+            return None
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                SELECT started_at FROM stream_sessions
+                WHERE twitch_stream_id = $1 AND ended_at IS NULL
+                """,
+                stream_id,
+            )
+        if row:
+            return row["started_at"]
+        return None
+
     async def finish_session(
         self,
         stream_id: str,

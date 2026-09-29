@@ -64,15 +64,30 @@ async def monitor_stream(
             live = await helix.get_stream(cfg.twitch_channel)
             if live:
                 if not was_live:
-                    session_started = time.time()
                     stream_id = str(live.get("id", "")) or None
                     session_game = live.get("game_name")
+                    stream_started_at = _parse_stream_started(live.get("started_at"))
+
+                    # Intentar recuperar una sesion previa de la DB (reinicio mid-stream).
+                    recovered = False
                     if database_history is not None and stream_id:
-                        await database_history.start_session(
-                            stream_id,
-                            _parse_stream_started(live.get("started_at")),
-                            session_game,
-                        )
+                        existing_started = await database_history.get_open_session(stream_id)
+                        if existing_started is not None:
+                            session_started = existing_started.timestamp()
+                            log.info(
+                                "Recovered open session %s from DB (started %s, %.0f min ago)",
+                                stream_id,
+                                existing_started.isoformat(),
+                                (time.time() - session_started) / 60,
+                            )
+                            recovered = True
+
+                    if not recovered:
+                        session_started = stream_started_at.timestamp()
+                        if database_history is not None and stream_id:
+                            await database_history.start_session(
+                                stream_id, stream_started_at, session_game
+                            )
                 was_live = True
             elif was_live:
                 seconds = max(60, int(time.time() - session_started))
