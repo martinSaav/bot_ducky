@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   bot:
     build: .
@@ -7,6 +5,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      TZ: America/Argentina/Buenos_Aires
     # Mapeo de puertos para el control de chat y el endpoint del agente
     ports:
       - "${AGENT_PORT:-8787}:${AGENT_PORT:-8787}"
@@ -22,7 +22,7 @@ services:
         condition: service_healthy
 
   db:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg18
     container_name: ducky_db
     restart: unless-stopped
     environment:
@@ -32,7 +32,10 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ducky_pgdata:/var/lib/postgresql/data
+      # En pg18+ los datos van en /var/lib/postgresql (sin /data al final)
+      # el motor crea automáticamente el subdirectorio 18/main/
+      - ducky_pgdata:/var/lib/postgresql
+      - ./db:/docker-entrypoint-initdb.d   # ejecuta los .sql en orden al crear la DB
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ducky} -d ${POSTGRES_DB:-duckydb}"]
       interval: 10s

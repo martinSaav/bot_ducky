@@ -8,23 +8,23 @@ El siguiente diagrama muestra los componentes físicos y de software involucrado
 
 ```mermaid
 graph TD
-    subgraph PC Streamer ["PC de la Streamer (Windows)"]
-        A[Juego: Valorant] --- L[Archivo: lockfile]
-        RAPI[API Local de Riot Client\nhttps://127.0.0.1]
+    subgraph pc_streamer ["PC de la Streamer (Windows)"]
+        A["Juego: Valorant"] --- L["Archivo: lockfile"]
+        RAPI["API Local de Riot Client<br/>https://127.0.0.1"]
         A -.- RAPI
         
-        DAEMON[Rust Daemon\ntwitch-game-agent.exe]
-        PS[PowerShell]
+        DAEMON["Rust Daemon<br/>twitch-game-agent.exe"]
+        PS["PowerShell"]
         
-        L -.->|1. Lee puerto y password| DAEMON
-        DAEMON -.->|2. Ejecuta| PS
-        PS <-->|3. HTTPS GET| RAPI
+        L -.->|"1. Lee puerto y password"| DAEMON
+        DAEMON -.->|"2. Ejecuta"| PS
+        PS <-->|"3. HTTPS GET"| RAPI
     end
 
-    subgraph Servidor Bot ["Servidor del Bot (Python)"]
-        HTTP[Agent Server\nPuerto: 8787]
-        ARBITER[Game Arbiter\nLogica de prioridades]
-        TWITCH[Twitch Bot]
+    subgraph servidor_bot ["Servidor del Bot (Python)"]
+        HTTP["Agent Server<br/>Puerto: 8787"]
+        ARBITER["Game Arbiter<br/>Logica de prioridades"]
+        TWITCH["Twitch Bot"]
         
         HTTP --> ARBITER
         ARBITER --> TWITCH
@@ -43,11 +43,11 @@ Este diagrama detalla exactamente qué sucede cada `X` segundos (configurado por
 ```mermaid
 sequenceDiagram
     autonumber
-    participant SYS as Sistema Operativo
-    participant AGENT as Rust Daemon
-    participant VAL as Riot Local API
-    participant SERVER as Bot: AgentServer
-    participant ARBITER as Bot: GameArbiter
+    participant SYS as "Sistema Operativo"
+    participant AGENT as "Rust Daemon"
+    participant VAL as "Riot Local API"
+    participant SERVER as "Bot: AgentServer"
+    participant ARBITER as "Bot: GameArbiter"
     
     loop Cada X Segundos
         AGENT->>SYS: ¿Qué procesos están corriendo?

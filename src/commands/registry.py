@@ -163,15 +163,28 @@ class Registry:
 
         game = self._current_game(ctx)
         messages = None
+        limit = ctx.svc.llm_summary.max_messages if ctx.svc.llm_summary else 300
 
-        # 1. Búsqueda semántica por embeddings (mejor opción si está disponible).
-        if ctx.svc.embeddings is not None:
-            limit = ctx.svc.llm_summary.max_messages if ctx.svc.llm_summary else 300
-            semantic = await ctx.svc.embeddings.search(game, seconds, limit=limit)
-            if semantic:
+        # 1. Preferir la base de datos (persistente y completa).
+        # Si los mensajes entran dentro del límite del LLM, los mandamos
+        # todos en orden cronológico: el LLM lee la línea de tiempo completa
+        # y puede entender causa→reacción, chistes, picos de actividad, etc.
+        # Si hay más mensajes que el límite, hacemos stride sampling: tomamos
+        # 1 de cada N mensajes uniformemente distribuidos en el tiempo para
+        # mantener cobertura de todo el stream sin sesgo temático ni temporal.
+        if ctx.svc.database_history is not None:
+            all_msgs = await ctx.svc.database_history.recent(seconds, limit=10_000)
+            if all_msgs:
+                if len(all_msgs) <= limit:
+                    sampled = all_msgs
+                else:
+                    step = len(all_msgs) / limit
+                    sampled = [all_msgs[int(i * step)] for i in range(limit)]
                 log.info(
-                    "cmd_summary: %d messages via embeddings (window %ds, query=%r)",
-                    len(semantic), seconds, game,
+                    "cmd_summary: %d/%d messages via %s (window %ds)",
+                    len(sampled), len(all_msgs),
+                    "full" if len(all_msgs) <= limit else f"stride-{len(all_msgs) / limit:.1f}x",
+                    seconds,
                 )
                 messages = [
                     HistoryEntry(
@@ -180,7 +193,7 @@ class Registry:
                         text=m["text"],
                         created_at=m["created_at"],
                     )
-                    for m in semantic
+                    for m in sampled
                 ]
 
         # 2. Fallback: mensajes de PostgreSQL por ventana temporal.
