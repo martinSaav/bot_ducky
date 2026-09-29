@@ -136,6 +136,8 @@ class Registry:
         self.add("clip", self.cmd_clip, help="crea un clip", cooldown=30)
         self.add("categoria", self.cmd_category, aliases=("cat", "juego", "game"),
                  help="cambia la categoria (mods)", cooldown=5, mod_only=True)
+        self.add("gamef", self.cmd_category_force, aliases=("catf", "juegof"),
+                 help="fija la categoria por 4h, el bot no la pisa (mods)", cooldown=5, mod_only=True)
         self.add("auto", self.cmd_auto,
                  help="on/off del auto-categorizador (mods)", cooldown=5, mod_only=True)
         self.add("recargar", self.cmd_reload, aliases=("reload",),
@@ -323,6 +325,17 @@ class Registry:
         # Un cambio manual manda: el arbitro no lo pisa hasta el proximo juego.
         ctx.svc.arbiter.note_manual_change(game["name"])
         return f"Categoria puesta en {game['name']}."
+
+    async def cmd_category_force(self, ctx: Ctx) -> str:
+        if not ctx.argstr:
+            return f"Uso: {PREFIX}gamef <juego>  — fija la categoria por 4h, el bot no la pisa."
+        game = await ctx.svc.resolver.resolve(ctx.argstr)
+        if not game:
+            return f"No encontre la categoria {ctx.argstr!r} en Twitch."
+        await ctx.svc.resolver.apply(ctx.svc.broadcaster_id, game)
+        # Inyecta el juego como fuente "manual" de maxima prioridad (dura 4h).
+        await ctx.svc.arbiter.force_game(game["name"])
+        return f"Categoria fijada en {game['name']} por 4h. El auto-categorizador no la va a pisar."
 
     async def cmd_auto(self, ctx: Ctx) -> str:
         arbiter = ctx.svc.arbiter

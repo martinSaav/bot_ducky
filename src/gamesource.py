@@ -26,7 +26,11 @@ Announcer = Callable[[str], Awaitable[None]]
 
 # Numero mas alto gana. El agente ve procesos; Discord ve un estado que la
 # streamer puede tener mal configurado o desactualizado.
-PRIORITY = {"agent": 20, "discord": 10}
+# "manual" tiene la prioridad mas alta: un mod lo puso a dedo con !gamef.
+PRIORITY = {"manual": 30, "agent": 20, "discord": 10}
+
+# Cuántos segundos dura la fuente manual antes de expirar (4 horas).
+MANUAL_STALE_AFTER = 4 * 3600
 
 
 @dataclass
@@ -78,6 +82,18 @@ class GameArbiter:
     def note_manual_change(self, game_name: str) -> None:
         """Un !categoria a mano pisa lo ultimo que aplicamos automaticamente."""
         self._last_applied = game_name
+
+    async def force_game(self, game_name: str) -> None:
+        """Fuerza un juego como fuente 'manual' de maxima prioridad.
+
+        Dura MANUAL_STALE_AFTER segundos (4h). Usar con !gamef.
+        """
+        await self.report(
+            "manual",
+            game_name,
+            stale_after=MANUAL_STALE_AFTER,
+            force=True,
+        )
 
     async def report(
         self,
@@ -194,6 +210,7 @@ class GameArbiter:
             await self.announce(
                 cfg.say_as(f"Categoria actualizada a: {game['name']}")
             )
+
 
     async def _maybe_start_prediction(self, game_name: str | None) -> None:
         if not cfg.prediction_enabled or not game_name:
