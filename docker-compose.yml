@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      TZ: America/Argentina/Buenos_Aires
     # Mapeo de puertos para el control de chat y el endpoint del agente
     ports:
       - "${AGENT_PORT:-8787}:${AGENT_PORT:-8787}"
