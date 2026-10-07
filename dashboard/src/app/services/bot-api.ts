@@ -15,10 +15,10 @@ export class BotApiService {
     share()
   );
 
-  /** Últimas N líneas del log del bot. */
-  getLogs(n = 100): Observable<{ lines: string[] }> {
+  /** Últimas N líneas del log del bot o del agente. */
+  getLogs(n = 100, source: 'bot' | 'agent' = 'bot'): Observable<{ lines: string[] }> {
     return this.http.get<{ lines: string[] }>(`${API_BASE}/logs`, {
-      params: { n: String(n) }
+      params: { n: String(n), source }
     });
   }
 }

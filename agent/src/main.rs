@@ -50,9 +50,6 @@ fn main() {
         }
     };
 
-    let log_path = Config::resolve(&base, &cfg.log_file);
-    let mut log = Logger::new(log_path);
-
     let mut detector = Detector::new(&cfg.games);
 
     if args.iter().any(|a| a == "--once") {
@@ -64,6 +61,8 @@ fn main() {
     }
 
     let reporter = Reporter::new(cfg.endpoint.clone(), cfg.token.clone());
+    let log_path = Config::resolve(&base, &cfg.log_file);
+    let mut log = Logger::new(log_path, &reporter);
 
     log.line(&format!(
         "agente v{VERSION} iniciado | {} juegos vigilados | cada {}s | destino {}",
@@ -86,6 +85,9 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
 
     loop {
         let current = detector.detect();
+        for diagnostic in detector.take_diagnostics() {
+            log.line(&diagnostic);
+        }
 
         let changed = !ever_sent || current != last_reported;
         let heartbeat_due = last_send.elapsed() >= heartbeat;
@@ -93,8 +95,9 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
         // Un envio fallido deja `ever_sent` en false, asi el proximo tick
         // reintenta sin necesidad de una cola aparte.
         if changed || heartbeat_due {
-            match reporter.send(current.as_ref()) {
+                match reporter.send(current.as_ref(), log.pending()) {
                 Ok(()) => {
+                        log.clear_pending();
                     if changed {
                         match &current {
                             Some(d) => {
@@ -172,13 +175,19 @@ fn exe_dir() -> PathBuf {
 
 /// Log a archivo y a consola. Si el archivo no se puede abrir seguimos igual:
 /// no poder loguear no es motivo para que el agente deje de funcionar.
-struct Logger {
+struct Logger<'a> {
     path: PathBuf,
+    reporter: &'a Reporter,
+    pending: Vec<String>,
 }
 
-impl Logger {
-    fn new(path: PathBuf) -> Self {
-        Self { path }
+impl<'a> Logger<'a> {
+    fn new(path: PathBuf, reporter: &'a Reporter) -> Self {
+        Self {
+            path,
+            reporter,
+            pending: Vec::new(),
+        }
     }
 
     fn line(&mut self, msg: &str) {
@@ -192,5 +201,22 @@ impl Logger {
         {
             let _ = writeln!(file, "{entry}");
         }
+
+        const MAX_PENDING: usize = 200;
+        self.pending.push(entry);
+        if self.pending.len() > MAX_PENDING {
+            self.pending.drain(..self.pending.len() - MAX_PENDING);
+        }
+        if self.reporter.send_logs(&self.pending).is_ok() {
+            self.pending.clear();
+        }
+    }
+
+    fn pending(&self) -> &[String] {
+        &self.pending
+    }
+
+    fn clear_pending(&mut self) {
+        self.pending.clear();
     }
 }

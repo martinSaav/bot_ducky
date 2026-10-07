@@ -133,6 +133,11 @@ powershell -ExecutionPolicy Bypass -File uninstall-autostart.ps1
 Mientras corre aparece en el Administrador de tareas como `twitch-game-agent.exe`
 y se puede cerrar desde ahí. El log queda en `agent.log`, al lado del ejecutable.
 
+Cada línea nueva se envía inmediatamente y de forma autenticada al endpoint de
+logs del backend. El dashboard las muestra en la fuente `Agente Rust`; si el
+backend no está disponible, siguen quedando en el archivo local y se reenvían
+cuando la conexión vuelve.
+
 ## Red
 
 El bot escucha en el puerto 8787. Como corre en la PC de Martín y el agente en la

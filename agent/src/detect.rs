@@ -92,6 +92,10 @@ impl Detector {
         Some(detected)
     }
 
+    pub fn take_diagnostics(&self) -> Vec<String> {
+        valorant::take_diagnostics()
+    }
+
     /// Logica de seleccion pura: dado un slice de nombres de procesos (ya en
     /// minusculas) devuelve el Detected de mayor prioridad, o None.
     ///

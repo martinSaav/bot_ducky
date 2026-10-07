@@ -31,7 +31,7 @@ log = logging.getLogger("agent")
 
 #: Un reporte legítimo son ~200 bytes. Cortamos mucho antes de que un cuerpo
 #: gigante nos haga trabajar de gusto.
-MAX_BODY = 4096
+MAX_BODY = 65536
 
 #: Si el agente no aparece en este tiempo lo damos por caído y el árbitro
 #: vuelve a la presencia de Discord. Son 3 latidos de margen.
@@ -117,9 +117,47 @@ class AgentServer:
             )
             self._last_host = host
 
+        agent_logs = data.get("logs", [])
+        if isinstance(agent_logs, list):
+            clean_logs = [line[:1000] for line in agent_logs if isinstance(line, str)]
+            if clean_logs:
+                agent_log_file = cfg.log_dir / "agent.log"
+                try:
+                    cfg.log_dir.mkdir(parents=True, exist_ok=True)
+                    with agent_log_file.open("a", encoding="utf-8") as file:
+                        file.write("\n".join(clean_logs) + "\n")
+                except OSError:
+                    log.exception("Could not persist agent logs")
+
         await self.arbiter.report(
             "agent", game, match_id=match_id, metadata=metadata, stale_after=STALE_AFTER
         )
+        return web.Response(status=204)
+
+    async def handle_agent_logs(self, request: web.Request) -> web.Response:
+        if not self._authorized(request):
+            return web.json_response({"error": "token invalido"}, status=401)
+
+        try:
+            data: Any = await request.json()
+        except Exception:  # noqa: BLE001
+            return web.json_response({"error": "json invalido"}, status=400)
+
+        logs = data.get("logs") if isinstance(data, dict) else None
+        if not isinstance(logs, list):
+            return web.json_response({"error": "'logs' debe ser una lista"}, status=400)
+
+        clean_logs = [line[:1000] for line in logs if isinstance(line, str)]
+        if clean_logs:
+            try:
+                agent_log_file = cfg.log_dir / "agent.log"
+                cfg.log_dir.mkdir(parents=True, exist_ok=True)
+                with agent_log_file.open("a", encoding="utf-8") as file:
+                    file.write("\n".join(clean_logs) + "\n")
+            except OSError:
+                log.exception("Could not persist agent logs")
+                return web.json_response({"error": "no se pudieron guardar los logs"}, status=500)
+
         return web.Response(status=204)
 
     async def handle_health(self, request: web.Request) -> web.Response:
@@ -143,13 +181,14 @@ class AgentServer:
         return web.json_response(snapshot, headers=headers)
 
     async def handle_logs(self, request: web.Request) -> web.Response:
-        """Últimas N líneas del log del bot (tail)."""
+        """Últimas N líneas del log seleccionado (tail)."""
         headers = _cors_headers(request)
         try:
             n = min(int(request.rel_url.query.get("n", "100")), 500)
         except (ValueError, TypeError):
             n = 100
-        log_file = cfg.log_dir / "bot.log"
+        source = request.rel_url.query.get("source", "bot")
+        log_file = cfg.log_dir / ("agent.log" if source == "agent" else "bot.log")
         lines: list[str] = []
         if log_file.exists():
             try:
@@ -213,6 +252,7 @@ class AgentServer:
     async def start(self) -> None:
         app = web.Application(client_max_size=MAX_BODY)
         app.router.add_post("/game", self.handle_game)
+        app.router.add_post("/agent/logs", self.handle_agent_logs)
         app.router.add_get("/health", self.handle_health)
         # Dashboard API
         app.router.add_get("/api/status", self.handle_status)

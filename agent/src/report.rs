@@ -13,6 +13,7 @@ use crate::detect::Detected;
 
 pub struct Reporter {
     endpoint: String,
+    log_endpoint: String,
     token: String,
     host: String,
     http: ureq::Agent,
@@ -31,6 +32,10 @@ impl Reporter {
             .unwrap_or_else(|_| "desconocido".to_string());
 
         Self {
+            log_endpoint: endpoint
+                .strip_suffix("/game")
+                .map(|base| format!("{base}/agent/logs"))
+                .unwrap_or_else(|| format!("{}/agent/logs", endpoint.trim_end_matches('/'))),
             endpoint,
             token,
             host,
@@ -42,7 +47,31 @@ impl Reporter {
         &self.endpoint
     }
 
-    pub fn send(&self, detected: Option<&Detected>) -> Result<(), String> {
+    pub fn send_logs(&self, logs: &[String]) -> Result<(), String> {
+        if logs.is_empty() {
+            return Ok(());
+        }
+
+        let body = json!({
+            "source": "agent",
+            "logs": logs,
+            "sent_at": clock::iso_utc(),
+        });
+
+        match self
+            .http
+            .post(&self.log_endpoint)
+            .set("Authorization", &format!("Bearer {}", self.token))
+            .send_json(body)
+        {
+            Ok(_) => Ok(()),
+            Err(ureq::Error::Status(401, _)) => Err("el bot rechazo el token al enviar logs".to_string()),
+            Err(ureq::Error::Status(code, _)) => Err(format!("el bot respondio HTTP {code} al enviar logs")),
+            Err(ureq::Error::Transport(error)) => Err(format!("no pude enviar logs al bot: {error}")),
+        }
+    }
+
+    pub fn send(&self, detected: Option<&Detected>, logs: &[String]) -> Result<(), String> {
         let body = json!({
             "source": "agent",
             "game": detected.map(|d| d.game.as_str()),
@@ -52,6 +81,7 @@ impl Reporter {
             "host": self.host,
             "agent_version": env!("CARGO_PKG_VERSION"),
             "sent_at": clock::iso_utc(),
+            "logs": logs,
         });
 
         let result = self
