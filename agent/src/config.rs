@@ -63,8 +63,8 @@ impl Config {
     pub fn load(path: &Path) -> Result<Self, String> {
         let raw = std::fs::read_to_string(path).map_err(|e| {
             format!(
-                "No pude leer {}: {e}\n\
-                 Copia agent.example.toml a agent.toml y completalo.",
+                "Could not read {}: {e}\n\
+                 Copy agent.example.toml to agent.toml and complete it.",
                 path.display()
             )
         })?;
@@ -78,34 +78,34 @@ impl Config {
 
     fn validate(&self) -> Result<(), String> {
         if self.endpoint.trim().is_empty() {
-            return Err("Falta 'endpoint' en agent.toml".into());
+            return Err("Missing 'endpoint' in agent.toml".into());
         }
         if self.endpoint.starts_with("https://") {
             // Mejor un error claro aca que un fallo de transporte opaco al
             // primer envio: este binario se compila sin TLS.
             return Err(
-                "esta build no soporta https. Sobre Tailscale usa http:// (el tunel                  ya va cifrado); para exponerlo publico, recompila ureq con la                  feature native-tls o pone un proxy inverso adelante."
+                "This build does not support https. Use http:// over Tailscale, or rebuild ureq with native-tls for a public endpoint."
                     .to_string(),
             );
         }
         if !self.endpoint.starts_with("http://") {
             return Err(format!(
-                "'endpoint' tiene que empezar con http:// (esta: {})",
+                "'endpoint' must start with http:// (got: {})",
                 self.endpoint
             ));
         }
         if self.token.trim().is_empty() || self.token.contains(TOKEN_PLACEHOLDER) {
-            return Err("Falta poner un 'token' real en agent.toml (el mismo que el bot)".into());
+            return Err("Set a real 'token' in agent.toml; it must match the bot token".into());
         }
         if self.games.is_empty() {
-            return Err("No hay ningun [[games]] configurado en agent.toml".into());
+            return Err("No [[games]] entry is configured in agent.toml".into());
         }
         if self.poll_seconds == 0 {
-            return Err("'poll_seconds' tiene que ser 1 o mas".into());
+            return Err("'poll_seconds' must be at least 1".into());
         }
         for game in &self.games {
             if game.processes.is_empty() {
-                return Err(format!("El juego '{}' no tiene 'processes'", game.name));
+                return Err(format!("Game '{}' has no 'processes'", game.name));
             }
         }
         Ok(())

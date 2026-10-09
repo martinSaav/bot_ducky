@@ -45,7 +45,7 @@ fn main() {
     let cfg = match Config::load(&config_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[X] {e}");
+            eprintln!("{} ERROR   [agent] [config] {e}", clock::log_stamp());
             std::process::exit(1);
         }
     };
@@ -54,8 +54,8 @@ fn main() {
 
     if args.iter().any(|a| a == "--once") {
         match detector.detect() {
-            Some(d) => println!("Detectado: {} (proceso {})", d.game, d.exe),
-            None => println!("Ningun juego de la lista esta corriendo."),
+            Some(d) => println!("Detected: {} (process {})", d.game, d.exe),
+            None => println!("No configured game is running."),
         }
         return;
     }
@@ -64,8 +64,8 @@ fn main() {
     let log_path = Config::resolve(&base, &cfg.log_file);
     let mut log = Logger::new(log_path, &reporter);
 
-    log.line(&format!(
-        "agente v{VERSION} iniciado | {} juegos vigilados | cada {}s | destino {}",
+    log.info(&format!(
+        "Agent v{VERSION} started | watching {} games | every {}s | destination {}",
         detector.rule_count(),
         cfg.poll_seconds,
         reporter.endpoint()
@@ -86,7 +86,7 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
     loop {
         let current = detector.detect();
         for diagnostic in detector.take_diagnostics() {
-            log.line(&diagnostic);
+            log.raw(&diagnostic);
         }
 
         let changed = !ever_sent || current != last_reported;
@@ -104,13 +104,13 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
                                 let match_part = d.match_id.as_deref()
                                     .map(|id| format!(" [match: {}]", &id[..id.len().min(36)]))
                                     .unwrap_or_default();
-                                log.line(&format!("--> {} ({}){}", d.game, d.exe, match_part));
+                                log.info(&format!("Detected {} ({}){}", d.game, d.exe, match_part));
                             }
-                            None => log.line("--> sin juego"),
+                            None => log.info("No configured game is running"),
                         }
                     }
                     if failures > 0 {
-                        log.line(&format!("conexion recuperada tras {failures} intentos"));
+                        log.info(&format!("Connection recovered after {failures} attempts"));
                         failures = 0;
                     }
                     last_reported = current;
@@ -121,7 +121,7 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
                     // Sin esto un bot apagado llenaria el log con una linea
                     // igual cada 5 segundos.
                     if failures < 3 || failures % 60 == 0 {
-                        log.line(&format!("[!] {e}"));
+                        log.warning(&e);
                     }
                     failures = failures.saturating_add(1);
                     ever_sent = false;
@@ -135,29 +135,29 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
 }
 
 fn scan() {
-    println!("Procesos en ejecucion (esto se imprime solo aca, no se envia a ningun lado):\n");
+    println!("Running processes (printed locally only; never sent anywhere):\n");
     let mut detector = Detector::new(&[]);
     for name in detector.running_processes() {
         println!("  {name}");
     }
-    println!("\nCopia el ejecutable del juego a un bloque [[games]] de agent.toml.");
+    println!("\nCopy the game executable into a [[games]] block in agent.toml.");
 }
 
 fn print_help() {
     println!(
         "\
 twitch-game-agent v{VERSION}
-Avisa al bot que juego esta corriendo, para que cambie la categoria del canal.
+Reports the running game to the bot so it can update the channel category.
 
-USO:
-  twitch-game-agent.exe              corre en segundo plano (uso normal)
-  twitch-game-agent.exe --once       dice que detecta ahora y sale
-  twitch-game-agent.exe --scan       lista los procesos, para agregar un juego
-  twitch-game-agent.exe --config X   usa otro archivo de configuracion
-  twitch-game-agent.exe --help       esta ayuda
+USAGE:
+    twitch-game-agent.exe              run in the background (normal mode)
+    twitch-game-agent.exe --once       print the current detection and exit
+    twitch-game-agent.exe --scan       list processes to configure a game
+    twitch-game-agent.exe --config X   use a different configuration file
+    twitch-game-agent.exe --help       show this help
 
-La configuracion vive en agent.toml, al lado del ejecutable.
-Solo se reportan los juegos declarados ahi."
+Configuration lives in agent.toml next to the executable.
+Only games declared there are reported."
     );
 }
 
@@ -190,8 +190,29 @@ impl<'a> Logger<'a> {
         }
     }
 
-    fn line(&mut self, msg: &str) {
-        let entry = format!("{}  {msg}", clock::log_stamp());
+    fn raw(&mut self, msg: &str) {
+        let (level, message) = if let Some(message) = msg.strip_prefix("[WARNING] ") {
+            ("WARNING", message)
+        } else if let Some(message) = msg.strip_prefix("[ERROR] ") {
+            ("ERROR", message)
+        } else if let Some(message) = msg.strip_prefix("[DEBUG] ") {
+            ("DEBUG", message)
+        } else {
+            ("INFO", msg)
+        };
+        self.write(level, message);
+    }
+
+    fn info(&mut self, msg: &str) {
+        self.write("INFO", msg);
+    }
+
+    fn warning(&mut self, msg: &str) {
+        self.write("WARNING", msg);
+    }
+
+    fn write(&mut self, level: &str, msg: &str) {
+        let entry = format!("{} {:<7} [agent] {msg}", clock::log_stamp(), level);
         println!("{entry}");
 
         if let Ok(mut file) = OpenOptions::new()

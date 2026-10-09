@@ -19,8 +19,22 @@ static CACHED_PUUID: Mutex<Option<String>> = Mutex::new(None);
 static DIAGNOSTICS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 fn diagnostic(message: impl Into<String>) {
+    let message = message.into();
+    let level = if message.starts_with("Could not")
+        || message.starts_with("Invalid")
+        || message.starts_with("No ")
+        || message.contains("failed")
+        || message.contains("HTTP")
+        || message.contains("returned no")
+        || message.contains("empty response")
+        || message.contains("not valid")
+    {
+        "WARNING"
+    } else {
+        "INFO"
+    };
     if let Ok(mut diagnostics) = DIAGNOSTICS.lock() {
-        diagnostics.push(message.into());
+        diagnostics.push(format!("[{level}] [valorant] {message}"));
     }
 }
 
@@ -49,25 +63,25 @@ fn read_lockfile() -> Option<(u16, String)> {
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(e) => {
-            diagnostic(format!("[valorant] lockfile no encontrado en {}: {}", path.display(), e));
+            diagnostic(format!("Lockfile not found at {}: {}", path.display(), e));
             return None;
         }
     };
     // formato: name:pid:port:password:protocol
     let parts: Vec<&str> = content.trim().splitn(6, ':').collect();
     if parts.len() < 5 {
-        diagnostic(format!("[valorant] lockfile con formato inesperado ({} partes): {:?}", parts.len(), content.trim()));
+        diagnostic(format!("Invalid lockfile format ({} parts): {:?}", parts.len(), content.trim()));
         return None;
     }
     let port: u16 = match parts[2].parse() {
         Ok(p) => p,
         Err(e) => {
-            diagnostic(format!("[valorant] no se pudo parsear el puerto del lockfile '{}': {}", parts[2], e));
+            diagnostic(format!("Could not parse lockfile port '{}': {}", parts[2], e));
             return None;
         }
     };
     let password = parts[3].to_string();
-    diagnostic(format!("[valorant] lockfile ok -> puerto {}", port));
+    diagnostic(format!("Lockfile loaded; local API port is {port}"));
     Some((port, password))
 }
 
@@ -108,7 +122,7 @@ fn curl_get(url: &str, auth_header: &str) -> Option<Value> {
     {
         Ok(o) => o,
         Err(e) => {
-            diagnostic(format!("[valorant] no se pudo lanzar powershell.exe: {}", e));
+            diagnostic(format!("Could not start curl.exe: {}", e));
             return None;
         }
     };
@@ -117,7 +131,7 @@ fn curl_get(url: &str, auth_header: &str) -> Option<Value> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         diagnostic(format!(
-            "[valorant] powershell fallo para {} (codigo {}) | stderr: {} | stdout: {}",
+            "curl.exe failed for {} (exit code {}) | stderr: {} | stdout: {}",
             url,
             output.status.code().unwrap_or(-1),
             stderr.trim(),
@@ -130,27 +144,27 @@ fn curl_get(url: &str, auth_header: &str) -> Option<Value> {
     let (body, status) = match stdout.rsplit_once(marker) {
         Some((body, status)) => (body.trim(), status.trim()),
         None => {
-            diagnostic(format!("[valorant] curl no devolvio codigo HTTP para {}", url));
+            diagnostic(format!("curl returned no HTTP status for {url}"));
             return None;
         }
     };
     if status == "404" {
-        diagnostic(format!("[valorant] {} -> 404 (no en partida/pregame en este endpoint)", url));
+        diagnostic(format!("{url} -> 404 (no active match at this endpoint)"));
         return None;
     }
     if !status.starts_with('2') {
-        diagnostic(format!("[valorant] {} -> HTTP {} | respuesta: {}", url, status, body));
+        diagnostic(format!("{url} -> HTTP {status} | response: {body}"));
         return None;
     }
     let trimmed = body;
     if trimmed.is_empty() {
-        diagnostic(format!("[valorant] {} -> respuesta vacia", url));
+        diagnostic(format!("{url} -> empty response"));
         return None;
     }
     match serde_json::from_str(trimmed) {
         Ok(v) => Some(v),
         Err(e) => {
-            diagnostic(format!("[valorant] respuesta de {} no es JSON valido: {} | raw: {}", url, e, &trimmed[..trimmed.len().min(120)]));
+            diagnostic(format!("Response from {url} is not valid JSON: {e} | raw: {}", &trimmed[..trimmed.len().min(120)]));
             None
         }
     }
@@ -161,11 +175,11 @@ fn fetch_puuid(port: u16, auth: &str) -> Option<String> {
     let body = curl_get(&url, auth)?;
     match body.get("subject").and_then(|v| v.as_str()) {
         Some(s) => {
-            diagnostic(format!("[valorant] puuid obtenido: {}...{}", &s[..s.len().min(8)], &s[s.len().saturating_sub(4)..]));
+            diagnostic(format!("PUUID received: {}...{}", &s[..s.len().min(8)], &s[s.len().saturating_sub(4)..]));
             Some(s.to_string())
         }
         None => {
-            diagnostic(format!("[valorant] /chat/v1/session no devolvio 'subject': {:?}", body));
+            diagnostic(format!("/chat/v1/session response has no 'subject': {:?}", body));
             None
         }
     }
@@ -207,7 +221,7 @@ pub fn active_match_id() -> Option<String> {
     };
     let puuid = match puuid {
         Some(p) => {
-            diagnostic("[valorant] usando puuid cacheado");
+            diagnostic("Using cached PUUID");
             p
         }
         None => {
@@ -221,18 +235,18 @@ pub fn active_match_id() -> Option<String> {
 
     // 1. Intentar core-game (partida activa).
     if let Some(id) = fetch_core_match_id(port, &auth, &puuid) {
-        diagnostic(format!("[valorant] match_id via core-game: {}...{}", &id[..id.len().min(8)], &id[id.len().saturating_sub(4)..]));
+        diagnostic(format!("Match ID received from core-game: {}...{}", &id[..id.len().min(8)], &id[id.len().saturating_sub(4)..]));
         return Some(id);
     }
 
     // 2. Fallback: seleccion de agentes (pregame).
     match fetch_pregame_match_id(port, &auth, &puuid) {
         Some(id) => {
-            diagnostic(format!("[valorant] match_id via pregame: {}...{}", &id[..id.len().min(8)], &id[id.len().saturating_sub(4)..]));
+            diagnostic(format!("Match ID received from pregame: {}...{}", &id[..id.len().min(8)], &id[id.len().saturating_sub(4)..]));
             Some(id)
         }
         None => {
-            diagnostic("[valorant] sin match_id: no esta en core-game ni pregame (menu o lobby)");
+            diagnostic("No match ID found in core-game or pregame (menu or lobby)");
             None
         }
     }

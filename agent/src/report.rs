@@ -65,9 +65,9 @@ impl Reporter {
             .send_json(body)
         {
             Ok(_) => Ok(()),
-            Err(ureq::Error::Status(401, _)) => Err("el bot rechazo el token al enviar logs".to_string()),
-            Err(ureq::Error::Status(code, _)) => Err(format!("el bot respondio HTTP {code} al enviar logs")),
-            Err(ureq::Error::Transport(error)) => Err(format!("no pude enviar logs al bot: {error}")),
+            Err(ureq::Error::Status(401, _)) => Err("Bot rejected the token while sending logs".to_string()),
+            Err(ureq::Error::Status(code, _)) => Err(format!("Bot returned HTTP {code} while sending logs")),
+            Err(ureq::Error::Transport(error)) => Err(format!("Could not send logs to bot: {error}")),
         }
     }
 
@@ -93,7 +93,7 @@ impl Reporter {
         match result {
             Ok(_) => Ok(()),
             Err(ureq::Error::Status(401, _)) => Err(
-                "el bot rechazo el token (401). Tiene que ser el mismo en agent.toml y en el .env"
+                "Bot rejected the token (401); agent.toml and .env must use the same token"
                     .to_string(),
             ),
             Err(ureq::Error::Status(code, resp)) => {
@@ -101,10 +101,10 @@ impl Reporter {
                     .into_string()
                     .unwrap_or_else(|_| "sin cuerpo".to_string());
                 let detail = detail.chars().take(200).collect::<String>();
-                Err(format!("el bot respondio HTTP {code}: {detail}"))
+                Err(format!("Bot returned HTTP {code}: {detail}"))
             }
             Err(ureq::Error::Transport(t)) => {
-                Err(format!("no pude contactar al bot en {}: {t}", self.endpoint))
+                Err(format!("Could not contact bot at {}: {t}", self.endpoint))
             }
         }
     }
