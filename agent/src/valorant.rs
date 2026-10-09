@@ -5,8 +5,8 @@
 //! HTTPS local en https://127.0.0.1:{port}.
 //!
 //! Para evitar dependencias de TLS con el toolchain windows-gnu, las llamadas
-//! HTTPS se hacen via PowerShell (Invoke-RestMethod), que ya tiene TLS
-//! integrado en Windows y acepta certificados auto-firmados con -SkipCertificateCheck.
+//! HTTPS se hacen via curl.exe, incluido en Windows moderno, aceptando el
+//! certificado auto-firmado del cliente local.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -87,26 +87,23 @@ fn base64_encode(input: &[u8]) -> String {
     out
 }
 
-/// Hace un GET HTTPS via PowerShell, aceptando certificados auto-firmados.
+/// Hace un GET HTTPS via curl, aceptando el certificado auto-firmado local.
 /// Devuelve el cuerpo JSON parseado, o None si fallo.
-fn powershell_get(url: &str, auth_header: &str) -> Option<Value> {
-    let script = format!(
-        r#"
-$ErrorActionPreference = 'Stop'
-try {{
-    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {{ $true }}
-    $r = Invoke-RestMethod -Uri '{url}' -Headers @{{Authorization='{auth}'}} -TimeoutSec 5 -Method Get
-    $r | ConvertTo-Json -Depth 5 -Compress
-}} catch {{
-    if ($_.Exception.Response.StatusCode.value__ -eq 404) {{ '' }} else {{ exit 1 }}
-}}
-"#,
-        url = url,
-        auth = auth_header,
-    );
-
-    let output = match Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+fn curl_get(url: &str, auth_header: &str) -> Option<Value> {
+    let authorization = format!("Authorization: {auth_header}");
+    let output = match Command::new("curl.exe")
+        .args([
+            "--silent",
+            "--show-error",
+            "--insecure",
+            "--max-time",
+            "5",
+            "--header",
+            &authorization,
+            "--write-out",
+            "\n__HTTP_STATUS__:%{http_code}",
+            url,
+        ])
         .output()
     {
         Ok(o) => o,
@@ -118,13 +115,36 @@ try {{
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        diagnostic(format!("[valorant] powershell fallo para {} | stderr: {}", url, stderr.trim()));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        diagnostic(format!(
+            "[valorant] powershell fallo para {} (codigo {}) | stderr: {} | stdout: {}",
+            url,
+            output.status.code().unwrap_or(-1),
+            stderr.trim(),
+            stdout.trim()
+        ));
         return None;
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let trimmed = stdout.trim();
-    if trimmed.is_empty() {
+    let marker = "__HTTP_STATUS__:";
+    let (body, status) = match stdout.rsplit_once(marker) {
+        Some((body, status)) => (body.trim(), status.trim()),
+        None => {
+            diagnostic(format!("[valorant] curl no devolvio codigo HTTP para {}", url));
+            return None;
+        }
+    };
+    if status == "404" {
         diagnostic(format!("[valorant] {} -> 404 (no en partida/pregame en este endpoint)", url));
+        return None;
+    }
+    if !status.starts_with('2') {
+        diagnostic(format!("[valorant] {} -> HTTP {} | respuesta: {}", url, status, body));
+        return None;
+    }
+    let trimmed = body;
+    if trimmed.is_empty() {
+        diagnostic(format!("[valorant] {} -> respuesta vacia", url));
         return None;
     }
     match serde_json::from_str(trimmed) {
@@ -138,7 +158,7 @@ try {{
 
 fn fetch_puuid(port: u16, auth: &str) -> Option<String> {
     let url = format!("https://127.0.0.1:{port}/chat/v1/session");
-    let body = powershell_get(&url, auth)?;
+    let body = curl_get(&url, auth)?;
     match body.get("subject").and_then(|v| v.as_str()) {
         Some(s) => {
             diagnostic(format!("[valorant] puuid obtenido: {}...{}", &s[..s.len().min(8)], &s[s.len().saturating_sub(4)..]));
@@ -153,7 +173,7 @@ fn fetch_puuid(port: u16, auth: &str) -> Option<String> {
 
 fn fetch_core_match_id(port: u16, auth: &str, puuid: &str) -> Option<String> {
     let url = format!("https://127.0.0.1:{port}/core-game/v1/player/{puuid}");
-    let body = powershell_get(&url, auth)?;
+    let body = curl_get(&url, auth)?;
     let id = body.get("matchID")?.as_str()?;
     if id.is_empty() { None } else { Some(id.to_string()) }
 }
@@ -163,7 +183,7 @@ fn fetch_core_match_id(port: u16, auth: &str, puuid: &str) -> Option<String> {
 /// matchID propio que sirve igualmente como clave unica de partida.
 fn fetch_pregame_match_id(port: u16, auth: &str, puuid: &str) -> Option<String> {
     let url = format!("https://127.0.0.1:{port}/pregame/v1/players/{puuid}");
-    let body = powershell_get(&url, auth)?;
+    let body = curl_get(&url, auth)?;
     let id = body.get("MatchID")?.as_str()?;
     if id.is_empty() { None } else { Some(id.to_string()) }
 }
