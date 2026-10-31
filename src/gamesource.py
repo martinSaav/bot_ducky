@@ -1,11 +1,14 @@
-"""Arbitro entre las fuentes que dicen que juego esta corriendo.
+"""Arbiter between the sources that say which game is running.
 
-Hoy hay dos: el agente de Rust en la PC del streamer y la presencia de
-Discord. El agente gana porque mira los procesos reales; Discord queda como
-respaldo para cuando el agente esta apagado o la PC no lo tiene instalado.
+Today there are two: the Rust agent on the streamer's PC and Discord
+presence. The agent wins because it looks at the real processes; Discord
+remains as a fallback for when the agent is off or not installed.
 
-Toda la logica de "que categoria poner" vive aca, en un solo lugar, para que
-las dos fuentes no se peleen por el canal.
+All the "which category to set" logic lives here, in one place, so the two
+sources do not fight over the channel.
+
+Text that viewers see in Twitch (prediction title and options, chat
+announcements, replies to the manual commands) is kept in Spanish on purpose.
 """
 from __future__ import annotations
 
@@ -24,23 +27,23 @@ log = logging.getLogger("gamesource")
 
 Announcer = Callable[[str], Awaitable[None]]
 
-# Numero mas alto gana. El agente ve procesos; Discord ve un estado que la
-# streamer puede tener mal configurado o desactualizado.
-# "manual" tiene la prioridad mas alta: un mod lo puso a dedo con !gamef.
+# Higher number wins. The agent sees processes; Discord sees a status the
+# streamer may have misconfigured or out of date.
+# "manual" has the highest priority: a mod set it by hand with !gamef.
 PRIORITY = {"manual": 30, "agent": 20, "discord": 10}
 
-# Cuántos segundos dura la fuente manual antes de expirar (4 horas).
+# How many seconds the manual source lasts before it expires (4 hours).
 MANUAL_STALE_AFTER = 4 * 3600
 
-# Fases del cliente local (vocabulario comun del agente) en las que hay una
-# partida en juego y todavia tiene sentido abrir una prediction. LoL no llega
-# a reportar "pregame": un dodge en seleccion de campeones no abre nada.
+# Local client phases (the agent's shared vocabulary) in which a match is
+# being played and opening a prediction still makes sense. LoL never reports
+# "pregame": a dodge in champion select does not open anything.
 LIVE_PHASES = {"pregame", "in_game"}
 
-# Fuente de estado local que el agente reporta para cada juego.
+# Local state source the agent reports for each game.
 LOCAL_SOURCE = {"league of legends": "lcu", "valorant": "presence"}
 
-# Twitch admite una sola prediction abierta (activa o bloqueada) por canal.
+# Twitch allows a single open prediction (active or locked) per channel.
 OPEN_PREDICTION = {"ACTIVE", "LOCKED"}
 
 
@@ -48,11 +51,11 @@ OPEN_PREDICTION = {"ACTIVE", "LOCKED"}
 class Report:
     game: str | None
     at: float
-    #: Segundos tras los cuales la fuente se considera muerta. None = nunca.
+    #: Seconds after which the source is considered dead. None = never.
     stale_after: float | None
-    #: ID de partida activa reportado por el agente (ej. daemon de Valorant).
+    #: Active match ID reported by the agent (e.g. from the Valorant client).
     match_id: str | None = None
-    #: Datos en vivo extraídos del cliente del juego por el agente.
+    #: Live data the agent reads from the game client.
     metadata: dict[str, Any] | None = None
 
     @property
@@ -88,17 +91,17 @@ class GameArbiter:
 
     # ------------------------------------------------------------------
     def sources(self) -> dict[str, Report]:
-        """Estado actual de cada fuente. Solo para diagnostico y comandos."""
+        """Current state of each source. Only for diagnostics and commands."""
         return dict(self._reports)
 
     def note_manual_change(self, game_name: str) -> None:
-        """Un !categoria a mano pisa lo ultimo que aplicamos automaticamente."""
+        """A manual !categoria overrides whatever was last applied automatically."""
         self._last_applied = game_name
 
     async def force_game(self, game_name: str) -> None:
-        """Fuerza un juego como fuente 'manual' de maxima prioridad.
+        """Forces a game as the highest-priority 'manual' source.
 
-        Dura MANUAL_STALE_AFTER segundos (4h). Usar con !gamef.
+        Lasts MANUAL_STALE_AFTER seconds (4h). Used by !gamef.
         """
         await self.report(
             "manual",
@@ -117,7 +120,7 @@ class GameArbiter:
         stale_after: float | None = None,
         force: bool = False,
     ) -> None:
-        """Una fuente informa que juego ve. Siempre es el estado absoluto."""
+        """A source reports which game it sees. Always the absolute state."""
         previous = self._reports.get(source)
         self._reports[source] = Report(
             game=game,
@@ -128,9 +131,9 @@ class GameArbiter:
         )
 
         if previous is not None and previous.game == game and not previous.stale and not force:
-            # Mismo juego, pero la partida cambio: empezo, termino o ya se sabe
-            # el resultado. Antes solo se reaccionaba a un match_id nuevo, asi
-            # que el fin de una partida pasaba desapercibido.
+            # Same game, but the match changed: it started, it ended, or the
+            # result is known. It used to react only to a new match_id, so the
+            # end of a match went unnoticed.
             if previous.match_id != match_id or previous.metadata != metadata:
                 log.debug(
                     "Source '%s' reports match change %r -> %r",
@@ -144,12 +147,12 @@ class GameArbiter:
 
     # ------------------------------------------------------------------
     def _debounce_for(self, source: str) -> int:
-        # El agente ve el proceso, no hace falta esperar tanto como con
-        # Discord, donde un alt-tab al launcher cambia el estado.
+        # The agent sees the process, so there is no need to wait as long as
+        # with Discord, where alt-tabbing to the launcher changes the status.
         return cfg.agent_debounce if source == "agent" else cfg.presence_debounce
 
     def _winner(self) -> tuple[str | None, str | None]:
-        """(fuente, juego) de la fuente viva de mayor prioridad."""
+        """(source, game) of the live source with the highest priority."""
         live = [(s, r) for s, r in self._reports.items() if not r.stale]
         if not live:
             return None, None
@@ -167,7 +170,7 @@ class GameArbiter:
             await self.apply()
         except asyncio.CancelledError:
             pass
-        except Exception:  # noqa: BLE001 - nunca debe matar la task
+        except Exception:  # noqa: BLE001 - must never kill the task
             log.exception("Failed to apply category")
 
     # ------------------------------------------------------------------
@@ -247,9 +250,9 @@ class GameArbiter:
 
             active = await self.helix.get_predictions(self.broadcaster_id)
             if any(prediction.get("status") in OPEN_PREDICTION for prediction in active):
-                # Una bloqueada tambien cuenta: si la anterior quedo sin
-                # resolver, Twitch rechaza la nueva, y sin guardar la clave se
-                # reintentaba (y fallaba) en cada pasada.
+                # A locked one counts too: if the previous one was left
+                # unresolved, Twitch rejects the new one, and without storing the
+                # key it was retried (and failed) on every pass.
                 if self.state is not None:
                     await self.state.set("prediction_created_key", match_key)
                 self._skip("a prediction is already open on Twitch; resolve it with !vwin / !vloss")
@@ -285,14 +288,14 @@ class GameArbiter:
                     )
                 )
         except RiotError as exc:
-            # Key expirada o inválida: el LolClient ya logueó el WARNING y se
-            # marcó como no configurado; no hace falta el traceback completo.
+            # Expired or invalid key: LolClient already logged the WARNING and
+            # marked itself as not configured; the full traceback is not needed.
             log.warning("Prediction cancelled due to Riot API error: %s", exc)
-        except Exception:  # noqa: BLE001 - una prediction no debe apagar el arbitro
+        except Exception:  # noqa: BLE001 - a prediction must not take the arbiter down
             log.exception("Failed to create prediction for %s", game_name)
 
     async def confirm_valorant_prediction(self) -> str:
-        """Inicia una prediction de Valorant tras confirmacion manual."""
+        """Starts a Valorant prediction after manual confirmation."""
         if self.state is None:
             return "No puedo guardar el estado de la prediction."
         await self._forget_finished_prediction()
@@ -328,7 +331,7 @@ class GameArbiter:
         return "Prediction de Valorant iniciada."
 
     async def resolve_manual_prediction(self, won: bool) -> str:
-        """Resuelve manualmente la prediction actual de Valorant."""
+        """Manually resolves the current prediction (Valorant or LoL)."""
         prediction = self.state.get("prediction_active") if self.state else None
         if not prediction:
             return "No hay una prediction activa registrada."
@@ -352,14 +355,14 @@ class GameArbiter:
             await self.helix.cancel_prediction(
                 self.broadcaster_id, prediction["prediction_id"]
             )
-        except Exception as exc:  # Twitch rechaza cancelar eventos ya terminados.
+        except Exception as exc:  # Twitch refuses to cancel events that already ended.
             if "already ended" not in str(exc).lower():
                 raise
         await self.state.set("prediction_active", None)
         return "Prediction cancelada."
 
     async def _forget_finished_prediction(self) -> None:
-        """Elimina del estado una prediction que Twitch ya cerro."""
+        """Removes from the state a prediction that Twitch already closed."""
         prediction = self.state.get("prediction_active") if self.state else None
         if not prediction:
             return
@@ -372,16 +375,16 @@ class GameArbiter:
             await self.state.set("prediction_active", None)
 
     def _skip(self, reason: str) -> None:
-        """Motivo para no crear una prediction, registrado una vez por motivo.
+        """Reason for not creating a prediction, logged once per reason.
 
-        apply() corre cada minuto: sin esto el log repetia la misma linea.
+        apply() runs every minute: without this the log repeated the same line.
         """
         if reason != self._last_skip:
             log.info("Not creating prediction: %s", reason)
             self._last_skip = reason
 
     def _local(self, normalized_game: str) -> Report | None:
-        """Reporte del agente con estado leido del cliente local de este juego."""
+        """Agent report carrying state read from this game's local client."""
         source = next((s for g, s in LOCAL_SOURCE.items() if g in normalized_game), None)
         report = self._reports.get("agent")
         if source is None or report is None or report.stale:
@@ -392,7 +395,7 @@ class GameArbiter:
         return report
 
     def _local_result(self, normalized_game: str, match_id: str) -> bool | None:
-        """Resultado de una partida segun el cliente local, si ya se sabe."""
+        """Result of a match according to the local client, if already known."""
         report = self._local(normalized_game)
         if report is None:
             return None
@@ -418,8 +421,8 @@ class GameArbiter:
         else:
             return None
 
-        # 1. El cliente local, a traves del agente: sabe si hay partida sin
-        #    depender de ninguna API key. Si responde, manda.
+        # 1. The local client, through the agent: it knows whether a match
+        #    is running without any API key. If it answers, it wins.
         local = self._local(normalized_game)
         if local is not None:
             phase = (local.metadata or {}).get("phase")
@@ -428,7 +431,7 @@ class GameArbiter:
             self._skip(f"local client says {prefix} is not in a match (phase: {phase})")
             return None
 
-        # 2. APIs publicas, cuando el agente no tiene datos del cliente.
+        # 2. Public APIs, when the agent has no data from the client.
         if prefix == "lol":
             if self.lol is None or not self.lol.configured:
                 self._skip("no local LoL data and the Riot API is unavailable (key missing or expired)")
@@ -439,8 +442,8 @@ class GameArbiter:
                 return None
             return f"lol:{game_id}"
 
-        # Valorant no tiene API publica de partida en vivo: queda el cliente
-        # local del propio bot, para cuando corre en la misma PC que el juego.
+        # Valorant has no public live-match API: what remains is the bot's
+        # own local client, for when it runs on the same PC as the game.
         if self.valorant is not None and self.valorant.local.configured:
             match_id = await self.valorant.local.active_match_id()
             if match_id:
@@ -482,7 +485,7 @@ class GameArbiter:
                         )
                     log.info("Prediction resolved: %s", "won" if won else "lost")
                     return
-            except Exception:  # noqa: BLE001 - el resultado se puede reintentar
+            except Exception:  # noqa: BLE001 - the result can be retried
                 log.exception("Failed to check match result")
             if attempt < 5:
                 await asyncio.sleep(10)
@@ -522,8 +525,8 @@ class GameArbiter:
             if self._local_result("league of legends", game_id) is not None:
                 self._schedule_prediction_result()
             elif local.match_id != game_id and self.lol is not None and self.lol.configured:
-                # Termino pero el cliente no dio el resultado (remake, cerro
-                # el cliente): que lo confirme la API publica.
+                # It ended but the client gave no result (remake, client
+                # closed): let the public API confirm it.
                 self._schedule_prediction_result()
             return
 

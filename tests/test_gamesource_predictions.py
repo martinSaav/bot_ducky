@@ -1,12 +1,15 @@
-"""Tests para la lógica de predicciones de Twitch en src/gamesource.py.
+"""Tests for the Twitch prediction logic in src/gamesource.py.
 
-Cubre los métodos con lógica de negocio real que afectan dinero real:
+Covers the methods with real business logic that move viewers' channel points:
   - resolve_manual_prediction  (!vwin / !vloss)
   - confirm_valorant_prediction (!vgame)
   - cancel_prediction (!vcancel)
-  - _prediction_result (resolución automática de LoL)
-  - _forget_finished_prediction (limpieza de predictions cerradas)
-  - _prediction_match_key (LoL requiere partida activa; Valorant nunca auto)
+  - _prediction_result (automatic LoL resolution)
+  - _forget_finished_prediction (cleanup of closed predictions)
+  - _prediction_match_key (needs an active match; for Valorant, local data
+    from the agent — see test_predictions_local.py)
+
+The outcome titles ("Gana" / "Pierde") are in Spanish because viewers see them.
 
 Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 """
@@ -22,12 +25,12 @@ from src.storage import JsonStore
 
 
 # ---------------------------------------------------------------------------
-# Fixture local: helix con todos los métodos async de predicciones
+# Local fixture: helix with every async prediction method
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
 def hx() -> MagicMock:
-    """Helix mock con AsyncMock correctos para todos los endpoints de predicciones."""
+    """Helix mock with proper AsyncMocks for every prediction endpoint."""
     helix = MagicMock()
     helix.get_predictions = AsyncMock(return_value=[])
     helix.create_prediction = AsyncMock(return_value={
@@ -186,7 +189,7 @@ class TestConfirmValorantPrediction:
     async def test_confirmValorantPrediction_WhenCreated_PersistsPredictionSession(
         self, hx, tmp_path
     ):
-        """prediction_session es necesario para que !vwin/!vloss funcione."""
+        """prediction_session is required for !vwin/!vloss to work."""
         arbiter = _make(tmp_path, hx)
         await arbiter.confirm_valorant_prediction()
 
@@ -276,7 +279,7 @@ class TestCancelPrediction:
     async def test_cancelPrediction_WhenTwitchSaysAlreadyEnded_ClearsStateAnyway(
         self, hx, tmp_path
     ):
-        """Twitch rechaza cancelar eventos ya terminados; el estado local igual debe limpiarse."""
+        """Twitch refuses to cancel events that already ended; the local state must be cleared anyway."""
         hx.cancel_prediction.side_effect = Exception("already ended")
         arbiter = _make(tmp_path, hx)
         await arbiter.state.set("prediction_active", _pred_state())
@@ -344,7 +347,7 @@ class TestPredictionResult:
         assert result is None
 
     async def test_predictionResult_WhenValorant_AlwaysReturnsNone(self, hx, tmp_path):
-        """Valorant nunca resuelve solo — requiere !vwin o !vloss."""
+        """Valorant never resolves on its own — it needs !vwin or !vloss."""
         arbiter = _make(tmp_path, hx)
         result = await arbiter._prediction_result({
             "game": "valorant",
@@ -374,7 +377,7 @@ class TestPredictionResult:
 
         result = await arbiter._prediction_result({
             "game": "league of legends",
-            "match_key": "12345",   # sin prefijo lol:
+            "match_key": "12345",   # no lol: prefix
             "prediction_id": "pred-001",
             "outcomes": {},
         })
@@ -418,10 +421,10 @@ class TestPredictionMatchKey:
         key = await arbiter._prediction_match_key("league of legends")
         assert key is None
 
-    async def test_predictionMatchKey_WhenValorant_AlwaysReturnsNone(
+    async def test_predictionMatchKey_WhenValorantWithoutLocalData_ReturnsNone(
         self, hx, tmp_path
     ):
-        """Valorant nunca tiene key automática — diseño intencional."""
+        """Without local data from the agent (and no bot-side client) there is no Valorant key."""
         arbiter = _make(tmp_path, hx)
         key = await arbiter._prediction_match_key("valorant")
         assert key is None

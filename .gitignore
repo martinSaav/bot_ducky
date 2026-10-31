@@ -1,5 +1,5 @@
-# El .env y CUALQUIER variante suya (respaldos, .env.local, .env.prod)
-# quedan fuera. La excepcion es la plantilla, que si va al repo.
+# The .env and ANY variant of it (backups, .env.local, .env.prod) stay out.
+# The exception is the template, which does go into the repo.
 .env
 .env.*
 !.env.example
@@ -12,7 +12,7 @@ __pycache__/
 .venv/
 venv/
 
-# agente de Rust
+# Rust agent
 agent/target/
 agent/agent.toml
 agent/agent.log

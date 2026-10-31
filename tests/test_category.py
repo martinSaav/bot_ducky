@@ -1,12 +1,12 @@
-"""Tests para src/category.py
+"""Tests for src/category.py
 
 Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 
-Estrategia de aislamiento
---------------------------
-* ``cfg`` se parchea vía ``unittest.mock.patch`` en el fixture ``mock_resolver``
-  (definido en conftest.py) para que los tests no lean el .env real.
-* ``Helix`` se reemplaza con AsyncMock en ``mock_helix`` (conftest.py).
+Isolation strategy
+------------------
+* ``cfg`` is patched with ``unittest.mock.patch`` in the ``mock_resolver``
+  fixture (defined in conftest.py) so tests do not read the real .env.
+* ``Helix`` is replaced with AsyncMock in ``mock_helix`` (conftest.py).
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from src.category import CategoryResolver, _norm
 
 
 # ===========================================================================
-# _norm (función interna)
+# _norm (internal function)
 # ===========================================================================
 
 class TestNorm:
@@ -54,7 +54,7 @@ class TestNorm:
 
 @pytest.fixture()
 def resolver(mock_helix, mock_state, tmp_path):
-    """CategoryResolver con game_map mínimo sin tocar el .env real."""
+    """CategoryResolver with a minimal game_map, without touching the real .env."""
     game_map = tmp_path / "game_map.json"
     game_map.write_text(
         json.dumps({
@@ -111,7 +111,7 @@ class TestCategoryResolverResolve:
     async def test_resolve_WhenCachedResult_DoesNotCallHelix(
         self, resolver, mock_helix, mock_state
     ):
-        # Pre-cargar el cache con un resultado conocido
+        # Preload the cache with a known result
         await mock_state.update(
             "game_cache",
             {"leagueoflegends": {"id": "21779", "name": "League of Legends"}},
@@ -123,7 +123,7 @@ class TestCategoryResolverResolve:
     async def test_resolve_WhenCachedAsFalse_ReturnsFalsyWithoutCallingHelix(
         self, resolver, mock_helix, mock_state
     ):
-        """False en caché significa que ya sabemos que no resuelve."""
+        """False in the cache means we already know it does not resolve."""
         await mock_state.update("game_cache", {"somegame": False})
         result = await resolver.resolve("SomeGame")
         assert result is None
@@ -133,7 +133,7 @@ class TestCategoryResolverResolve:
         self, resolver, mock_helix
     ):
         mock_helix.get_game_by_name.return_value = None
-        # Devuelve candidato muy diferente al input
+        # Returns a candidate very different from the input
         mock_helix.search_categories.return_value = [
             {"id": 99, "name": "Completely Different Game"}
         ]
@@ -144,7 +144,7 @@ class TestCategoryResolverResolve:
         self, resolver, mock_helix
     ):
         mock_helix.get_game_by_name.return_value = None
-        # Nombre muy similar al buscado → score ≥ 0.82
+        # Name very close to the one searched → score ≥ 0.82
         mock_helix.search_categories.return_value = [
             {"id": 21779, "name": "League of Legends"}
         ]
@@ -155,10 +155,10 @@ class TestCategoryResolverResolve:
     async def test_resolve_WhenManualMapHit_UsesAliasAsTarget(
         self, resolver, mock_helix
     ):
-        """'counter-strike 2' mapea a 'Counter-Strike' vía game_map."""
+        """'counter-strike 2' maps to 'Counter-Strike' through game_map."""
         mock_helix.get_game_by_name.return_value = {"id": 32399, "name": "Counter-Strike"}
         result = await resolver.resolve("Counter-Strike 2")
-        # Helix debe haberse llamado con el alias del mapa, no el nombre original
+        # Helix must have been called with the map's alias, not the original name
         mock_helix.get_game_by_name.assert_called_once_with("Counter-Strike")
         assert result == {"id": "32399", "name": "Counter-Strike"}
 
@@ -202,7 +202,7 @@ class TestCategoryResolverApply:
         game_map = tmp_path / "game_map.json"
         game_map.write_text(json.dumps({"map": {}, "ignore": []}), encoding="utf-8")
 
-        # El cfg que lee apply() es el singleton de nivel de módulo
+        # The cfg read by apply() is the module-level singleton
         with mpatch("src.category.cfg") as mock_cfg:
             mock_cfg.game_map_file = game_map
             mock_cfg.autocat_dry_run = True
@@ -229,6 +229,6 @@ class TestCategoryResolverReloadMap:
         with patch("src.category.cfg") as mock_cfg:
             mock_cfg.game_map_file = tmp_path / "nonexistent.json"
             resolver.reload_map()
-        # No lanza excepción y el mapa queda vacío
+        # Does not raise, and the map ends up empty
         assert resolver._map == {}
         assert resolver._ignore == set()

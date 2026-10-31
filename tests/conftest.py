@@ -1,11 +1,11 @@
-"""Fixtures compartidos por toda la suite de tests.
+"""Fixtures shared by the whole test suite.
 
-Reglas de aislamiento
----------------------
-* Nunca se lee el .env real: las variables de entorno se inyectan con
-  ``monkeypatch.setenv`` o a través de los helpers de este módulo.
-* Las dependencias externas (Helix, JsonStore, ChatClient, etc.) siempre
-  se pasan como MagicMock / AsyncMock para que ningún test toque la red.
+Isolation rules
+---------------
+* The real .env is never read: environment variables are injected with
+  ``monkeypatch.setenv`` or through the helpers in this module.
+* External dependencies (Helix, JsonStore, ChatClient, etc.) are always
+  passed as MagicMock / AsyncMock so no test touches the network.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from src.twitch.chat import ChatMessage
 
 
 # ---------------------------------------------------------------------------
-# Helpers de fábrica de mensajes
+# Message factory helpers
 # ---------------------------------------------------------------------------
 
 def make_message(
@@ -37,7 +37,7 @@ def make_message(
     message_id: str = "msg-001",
     channel: str = "chaarqueen",
 ) -> ChatMessage:
-    """Construye un ChatMessage listo para usar en tests."""
+    """Builds a ChatMessage ready to use in tests."""
     badges_parts: list[str] = []
     if is_broadcaster:
         badges_parts.append("broadcaster/1")
@@ -59,12 +59,12 @@ def make_message(
 
 
 # ---------------------------------------------------------------------------
-# Fixtures de infraestructura
+# Infrastructure fixtures
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
 def tmp_store(tmp_path: Path):
-    """JsonStore respaldado por un archivo temporal (se elimina al terminar)."""
+    """JsonStore backed by a temporary file (deleted afterwards)."""
     from src.storage import JsonStore
     return JsonStore(tmp_path / "test_store.json")
 
@@ -88,14 +88,14 @@ def mock_helix() -> MagicMock:
 
 @pytest.fixture()
 def mock_state(tmp_path: Path):
-    """JsonStore vacío para el estado del bot."""
+    """Empty JsonStore for the bot state."""
     from src.storage import JsonStore
     return JsonStore(tmp_path / "state.json")
 
 
 @pytest.fixture()
 def mock_resolver(mock_helix, mock_state, tmp_path):
-    """CategoryResolver con game_map.json mínimo y Helix mockeado."""
+    """CategoryResolver with a minimal game_map.json and a mocked Helix."""
     import json
     game_map = tmp_path / "game_map.json"
     game_map.write_text(
@@ -112,7 +112,7 @@ def mock_resolver(mock_helix, mock_state, tmp_path):
 
 @pytest.fixture()
 def mock_arbiter(mock_helix, mock_resolver, mock_state) -> GameArbiter:
-    """GameArbiter con todas las dependencias mockeadas."""
+    """GameArbiter with every dependency mocked."""
     with patch("src.gamesource.cfg") as mock_cfg:
         mock_cfg.autocat_enabled = True
         mock_cfg.agent_debounce = 15
@@ -137,7 +137,7 @@ def mock_arbiter(mock_helix, mock_resolver, mock_state) -> GameArbiter:
 
 @pytest.fixture()
 def mock_services(history, mock_helix, mock_state, mock_arbiter, mock_resolver):
-    """Services mock mínimo para tests de Registry."""
+    """Minimal Services mock for Registry tests."""
     import aiohttp
     from src.services import Services
     from src.twitch.auth import TwitchAuth

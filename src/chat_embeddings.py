@@ -1,8 +1,8 @@
-"""Worker de embeddings para el historial de chat.
+"""Embeddings worker for the chat history.
 
-Genera embeddings de los mensajes persistidos en PostgreSQL usando la API
-compatible con OpenAI (Gemini text-embedding-004) y los guarda en la tabla
-chat_embeddings para búsqueda semántica.
+Generates embeddings for the messages stored in PostgreSQL using the
+OpenAI-compatible API (Gemini text-embedding-004) and saves them in the
+chat_embeddings table for semantic search.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ log = logging.getLogger("chat_embeddings")
 
 
 class EmbeddingWorker:
-    """Genera y persiste embeddings de mensajes de chat en background."""
+    """Generates and stores chat message embeddings in the background."""
 
     def __init__(
         self,
@@ -41,12 +41,12 @@ class EmbeddingWorker:
         self._worker: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        """Asegura el schema y arranca el worker."""
+        """Ensures the schema exists and starts the worker."""
         await self._ensure_schema()
         self._worker = asyncio.create_task(self._run(), name="embedding-worker")
 
     def enqueue(self, message_id: int, text: str) -> None:
-        """Encola un mensaje para embeber. No bloquea."""
+        """Queues a message for embedding. Non-blocking."""
         try:
             self._queue.put_nowait((message_id, text))
         except asyncio.QueueFull:
@@ -58,17 +58,16 @@ class EmbeddingWorker:
         seconds: int,
         limit: int = 300,
     ) -> list[dict[str, Any]]:
-        """Busca mensajes semánticamente similares a *query* dentro de una
-        ventana temporal.  Devuelve lista de dicts con display_name, text y
-        created_at, o lista vacía si no hay suficientes embeddings o la API
-        falla.
+        """Finds messages semantically similar to *query* within a time window.
+        Returns a list of dicts with display_name, text and created_at, or an
+        empty list if there are not enough embeddings or the API fails.
         """
         query_vec = await self._embed_single(query)
         if query_vec is None:
             return []
         async with self._pool.acquire() as conn:
-            # Exige al menos 10 filas embebidas en la ventana antes de usarlas,
-            # para no degradar el resumen con muy poco contexto.
+            # Requires at least 10 embedded rows in the window before using them,
+            # so the summary is not degraded by too little context.
             count = await conn.fetchval(
                 """
                 SELECT COUNT(*)
@@ -94,7 +93,7 @@ class EmbeddingWorker:
                 query_vec,
                 limit,
             )
-        # Reordenar cronológicamente para que el LLM reciba el hilo en orden.
+        # Re-sort chronologically so the LLM gets the thread in order.
         result = [
             {
                 "display_name": row["author_login"],
@@ -117,7 +116,7 @@ class EmbeddingWorker:
     # ------------------------------------------------------------------
 
     async def _ensure_schema(self) -> None:
-        """Crea la tabla chat_embeddings con la dimensión correcta si no existe."""
+        """Creates the chat_embeddings table with the right dimension if it does not exist."""
         async with self._pool.acquire() as conn:
             exists = await conn.fetchval(
                 "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'chat_embeddings')"
@@ -127,7 +126,7 @@ class EmbeddingWorker:
 
             vec = await self._embed_single("test")
             if not vec:
-                raise RuntimeError("No se pudo obtener un embedding de prueba para calcular la dimensión.")
+                raise RuntimeError("Could not get a test embedding to compute the dimension.")
             dim = len(vec)
 
             await conn.execute(
@@ -147,17 +146,17 @@ class EmbeddingWorker:
             )
 
     async def _run(self) -> None:
-        """Worker principal: consume la cola en lotes y persiste embeddings."""
+        """Main worker: consumes the queue in batches and stores the embeddings."""
         while True:
-            # Espera el primer item de forma indefinida.
+            # Waits indefinitely for the first item.
             first = await self._queue.get()
             if first is None:
                 self._queue.task_done()
                 return
             batch: list[tuple[int, str]] = [first]
 
-            # Armar el lote esperando hasta 5 segundos para acumular más mensajes
-            # antes de golpear la API.
+            # Build the batch, waiting up to 5 seconds to collect more messages
+            # before hitting the API.
             start_time = asyncio.get_running_loop().time()
             timeout = 5.0
 
@@ -170,7 +169,7 @@ class EmbeddingWorker:
                         self._queue.get(), timeout=timeout - elapsed
                     )
                     if item is None:
-                        # Señal de stop en medio de un batch
+                        # Stop signal in the middle of a batch
                         await self._process_batch(batch)
                         self._queue.task_done()
                         for _ in batch:
@@ -206,7 +205,7 @@ class EmbeddingWorker:
         log.debug("Embeddings saved for %d messages", len(ids))
 
     async def _embed_batch(self, texts: list[str]) -> list[list[float]] | None:
-        """Llama a /embeddings y devuelve los vectores en el mismo orden."""
+        """Calls /embeddings and returns the vectors in the same order."""
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -249,5 +248,5 @@ class EmbeddingWorker:
 
 
 def _vec_to_pg(vec: list[float]) -> str:
-    """Convierte una lista de floats al formato literal de pgvector: '[0.1,0.2,...]'."""
+    """Converts a list of floats to pgvector's literal format: '[0.1,0.2,...]'."""
     return "[" + ",".join(f"{v:.8g}" for v in vec) + "]"

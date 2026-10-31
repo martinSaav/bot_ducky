@@ -90,7 +90,7 @@ class PostgresChatHistory:
                 self._queue.task_done()
 
     async def _insert(self, message: ChatMessage) -> int | None:
-        """Inserta el mensaje y devuelve el id generado, o None si ya existía."""
+        """Inserts the message and returns the generated id, or None if it already existed."""
         if self._pool is None:
             return None
         async with self._pool.acquire() as connection:
@@ -156,10 +156,10 @@ class PostgresChatHistory:
             )
 
     async def get_open_session(self, stream_id: str) -> datetime | None:
-        """Devuelve started_at de una sesion abierta (sin ended_at), o None.
+        """Returns started_at of an open session (no ended_at), or None.
 
-        Permite recuperar la hora de inicio real del stream tras un reinicio
-        del bot, evitando perder el contexto de una sesion larga.
+        It recovers the real start time of the stream after the bot restarts,
+        so the context of a long session is not lost.
         """
         if self._pool is None:
             return None

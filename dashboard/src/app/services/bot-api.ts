@@ -9,13 +9,13 @@ const API_BASE = '/api';
 export class BotApiService {
   private http = inject(HttpClient);
 
-  /** Estado completo del bot, actualizado cada 5 segundos. */
+  /** Full bot status, refreshed every 5 seconds. */
   readonly status$: Observable<BotStatus> = timer(0, 5000).pipe(
     switchMap(() => this.http.get<BotStatus>(`${API_BASE}/status`)),
     share()
   );
 
-  /** Últimas N líneas del log del bot o del agente. */
+  /** Last N lines of the bot's or the agent's log. */
   getLogs(n = 100, source: 'bot' | 'agent' = 'bot'): Observable<{ lines: string[] }> {
     return this.http.get<{ lines: string[] }>(`${API_BASE}/logs`, {
       params: { n: String(n), source }

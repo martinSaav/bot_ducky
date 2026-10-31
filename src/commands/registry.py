@@ -1,4 +1,8 @@
-"""Comandos del chat: registro, permisos, cooldowns y despacho."""
+"""Chat commands: registration, permissions, cooldowns and dispatch.
+
+Command names and every reply sent to chat are in Spanish on purpose: the
+stream's viewers type and read them.
+"""
 from __future__ import annotations
 
 import logging
@@ -85,9 +89,9 @@ class Registry:
         )
 
         if cmd.mod_only and not msg.is_mod:
-            return  # silencio: no spameamos el chat con "no tenes permiso"
+            return  # silent: do not spam chat with "you do not have permission"
 
-        # Los mods se saltean el cooldown para poder corregir cosas al toque.
+        # Mods skip the cooldown so they can fix things right away.
         if not msg.is_privileged:
             last = self._last_used.get(cmd.name, 0.0)
             if time.monotonic() - last < cmd.cooldown:
@@ -112,36 +116,36 @@ class Registry:
     # ------------------------------------------------------------------
     def _register_all(self) -> None:
         self.add("comandos", self.cmd_help, aliases=("ayuda", "help"),
-                 help="lista de comandos", cooldown=20)
+                 help="list of commands", cooldown=20)
         self.add("resumen", self.cmd_summary, aliases=("summary",),
-             help="resume el chat reciente", cooldown=60)
+             help="summarizes recent chat", cooldown=60)
         self.add("lrank", self.cmd_rank, aliases=("rank", "elo", "lol"),
-                 help="elo de LoL del streamer", cooldown=10)
+                 help="streamer's LoL rank", cooldown=10)
         self.add("lmatch", self.cmd_live, aliases=("partida", "live", "enpartida"),
-                 help="partida de LoL en curso", cooldown=10)
+                 help="LoL match in progress", cooldown=10)
         self.add("vrank", self.cmd_valorant, aliases=("valorant", "val"),
-                 help="rango de Valorant", cooldown=10)
+                 help="Valorant rank", cooldown=10)
         self.add("vmatch", self.cmd_vmatch, aliases=("ultima", "lastmatch"),
-                 help="ultima partida de Valorant", cooldown=15)
+                 help="last Valorant match", cooldown=15)
         self.add("vgame", self.cmd_vgame,
-             help="confirma una partida de Valorant y crea prediction",
+             help="confirms a Valorant match and creates a prediction",
              cooldown=5, mod_only=True)
         self.add("vwin", self.cmd_vwin,
-             help="resuelve la prediction como victoria", cooldown=5, mod_only=True)
+             help="resolves the prediction as a win", cooldown=5, mod_only=True)
         self.add("vloss", self.cmd_vloss,
-             help="resuelve la prediction como derrota", cooldown=5, mod_only=True)
+             help="resolves the prediction as a loss", cooldown=5, mod_only=True)
         self.add("vcancel", self.cmd_vcancel,
-             help="cancela la prediction actual", cooldown=5, mod_only=True)
-        self.add("uptime", self.cmd_uptime, help="tiempo en vivo", cooldown=20)
-        self.add("clip", self.cmd_clip, help="crea un clip", cooldown=30)
+             help="cancels the current prediction", cooldown=5, mod_only=True)
+        self.add("uptime", self.cmd_uptime, help="time live", cooldown=20)
+        self.add("clip", self.cmd_clip, help="creates a clip", cooldown=30)
         self.add("categoria", self.cmd_category, aliases=("cat", "juego", "game"),
-                 help="cambia la categoria (mods)", cooldown=5, mod_only=True)
+                 help="changes the category (mods)", cooldown=5, mod_only=True)
         self.add("gamef", self.cmd_category_force, aliases=("catf", "juegof"),
-                 help="fija la categoria por 4h, el bot no la pisa (mods)", cooldown=5, mod_only=True)
+                 help="pins the category for 4h; the bot will not override it (mods)", cooldown=5, mod_only=True)
         self.add("auto", self.cmd_auto,
-                 help="on/off del auto-categorizador (mods)", cooldown=5, mod_only=True)
+                 help="turns the auto-categorizer on/off (mods)", cooldown=5, mod_only=True)
         self.add("recargar", self.cmd_reload, aliases=("reload",),
-                 help="recarga game_map.json (mods)", cooldown=5, mod_only=True)
+                 help="reloads game_map.json (mods)", cooldown=5, mod_only=True)
 
     # ------------------------------------------------------------------
     async def cmd_help(self, ctx: Ctx) -> str:
@@ -167,13 +171,13 @@ class Registry:
         messages = None
         limit = ctx.svc.llm_summary.max_messages if ctx.svc.llm_summary else 300
 
-        # 1. Preferir la base de datos (persistente y completa).
-        # Si los mensajes entran dentro del límite del LLM, los mandamos
-        # todos en orden cronológico: el LLM lee la línea de tiempo completa
-        # y puede entender causa→reacción, chistes, picos de actividad, etc.
-        # Si hay más mensajes que el límite, hacemos stride sampling: tomamos
-        # 1 de cada N mensajes uniformemente distribuidos en el tiempo para
-        # mantener cobertura de todo el stream sin sesgo temático ni temporal.
+        # 1. Prefer the database (persistent and complete).
+        # If the messages fit within the LLM limit, all of them are sent in
+        # chronological order: the LLM reads the full timeline and can follow
+        # cause and reaction, jokes, activity spikes, etc.
+        # If there are more messages than the limit, stride sampling is used:
+        # 1 in every N messages, spread evenly over time, to keep coverage of
+        # the whole stream without topical or temporal bias.
         if ctx.svc.database_history is not None:
             all_msgs = await ctx.svc.database_history.recent(seconds, limit=10_000)
             if all_msgs:
@@ -198,7 +202,7 @@ class Registry:
                     for m in sampled
                 ]
 
-        # 2. Fallback: mensajes de PostgreSQL por ventana temporal.
+        # 2. Fallback: PostgreSQL messages by time window.
         if messages is None and ctx.svc.database_history is not None:
             limit = ctx.svc.llm_summary.max_messages if ctx.svc.llm_summary else 2_000
             persisted = await ctx.svc.database_history.recent(seconds, limit=limit)
@@ -217,7 +221,7 @@ class Registry:
                     for m in persisted
                 ]
 
-        # 3. Fallback final: historial en memoria.
+        # 3. Last fallback: in-memory history.
         if messages is None:
             messages = ctx.svc.history.since(seconds)
 
@@ -316,13 +320,13 @@ class Registry:
     async def cmd_category(self, ctx: Ctx) -> str:
         if not ctx.argstr:
             channel = await ctx.svc.helix.get_channel(ctx.svc.broadcaster_id)
-            actual = (channel or {}).get("game_name") or "sin categoria"
-            return f"Categoria actual: {actual}. Uso: {PREFIX}categoria <juego>"
+            current = (channel or {}).get("game_name") or "sin categoria"
+            return f"Categoria actual: {current}. Uso: {PREFIX}categoria <juego>"
         game = await ctx.svc.resolver.resolve(ctx.argstr)
         if not game:
             return f"No encontre la categoria {ctx.argstr!r} en Twitch."
         await ctx.svc.resolver.apply(ctx.svc.broadcaster_id, game)
-        # Un cambio manual manda: el arbitro no lo pisa hasta el proximo juego.
+        # A manual change wins: the arbiter will not override it until the next game.
         ctx.svc.arbiter.note_manual_change(game["name"])
         return f"Categoria puesta en {game['name']}."
 
@@ -333,7 +337,7 @@ class Registry:
         if not game:
             return f"No encontre la categoria {ctx.argstr!r} en Twitch."
         await ctx.svc.resolver.apply(ctx.svc.broadcaster_id, game)
-        # Inyecta el juego como fuente "manual" de maxima prioridad (dura 4h).
+        # Injects the game as the highest-priority "manual" source (lasts 4h).
         await ctx.svc.arbiter.force_game(game["name"])
         return f"Categoria fijada en {game['name']} por 4h. El auto-categorizador no la va a pisar."
 
@@ -347,10 +351,10 @@ class Registry:
         elif arg:
             return f"Uso: {PREFIX}auto on | {PREFIX}auto off"
 
-        estado = "encendido" if arbiter.enabled else "apagado"
-        vivas = [s for s, r in arbiter.sources().items() if not r.stale]
-        fuentes = ", ".join(vivas) if vivas else "ninguna"
-        return f"Auto-categorizador {estado}. Fuentes activas: {fuentes}."
+        status = "encendido" if arbiter.enabled else "apagado"
+        live_sources = [s for s, r in arbiter.sources().items() if not r.stale]
+        sources_text = ", ".join(live_sources) if live_sources else "ninguna"
+        return f"Auto-categorizador {status}. Fuentes activas: {sources_text}."
 
     async def cmd_reload(self, ctx: Ctx) -> str:
         ctx.svc.resolver.reload_map()

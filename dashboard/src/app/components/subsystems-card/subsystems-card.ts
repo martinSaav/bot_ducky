@@ -20,8 +20,8 @@ interface SubsystemDef {
       <mat-card class="dash-card">
         <mat-card-header>
           <mat-icon mat-card-avatar class="card-icon">settings_input_component</mat-icon>
-          <mat-card-title>Subsistemas</mat-card-title>
-          <mat-card-subtitle>Estado de cada módulo</mat-card-subtitle>
+          <mat-card-title>Subsystems</mat-card-title>
+          <mat-card-subtitle>Status of each module</mat-card-subtitle>
         </mat-card-header>
         <mat-card-content>
           <div class="subsystems-grid">
@@ -55,7 +55,7 @@ export class SubsystemsCardComponent {
 
   readonly defs: SubsystemDef[] = [
     { key: 'chat_bot',        label: 'Chat bot',     icon: 'chat' },
-    { key: 'agent',           label: 'Agente Rust',  icon: 'computer' },
+    { key: 'agent',           label: 'Rust agent',   icon: 'computer' },
     { key: 'discord_presence',label: 'Discord',      icon: 'discord' },
     { key: 'clips_pipeline',  label: 'Clips',        icon: 'movie' },
     { key: 'llm_summary',     label: 'LLM',          icon: 'smart_toy' },

@@ -1,20 +1,20 @@
 FROM python:3.12-slim
 
-# Instalar dependencias del sistema operativo (necesarias para yt-dlp y compilar paquetes)
+# Install OS dependencies (needed by yt-dlp and to build packages)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Configurar el directorio de trabajo
+# Set the working directory
 WORKDIR /app
 
-# Instalar dependencias de Python optimizando caché de capas
+# Install Python dependencies, making good use of the layer cache
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar el resto del código del bot
+# Copy the rest of the bot's code
 COPY . .
 
-# Comando por defecto para iniciar el bot
+# Default command to start the bot
 CMD ["python", "run.py"]

@@ -1,4 +1,4 @@
-"""Carga y validación de la configuración desde .env."""
+"""Loads and validates the configuration from .env."""
 from __future__ import annotations
 
 import os
@@ -41,8 +41,8 @@ class Config:
     twitch_channel = _str("TWITCH_CHANNEL").lstrip("@").lower()
     twitch_bot_login = _str("TWITCH_BOT_LOGIN").lstrip("@").lower()
 
-    #: Como se presenta el bot en el chat y en los logs. Es solo cosmetico:
-    #: el nombre que ve el chat en cada mensaje es el de la cuenta de Twitch.
+    #: How the bot introduces itself in chat and in the logs. Cosmetic only:
+    #: the name chat sees on every message is the Twitch account's.
     bot_name = _str("BOT_NAME")
 
     # --- Discord ---
@@ -58,17 +58,17 @@ class Config:
     prediction_enabled = _bool("PREDICTION_ENABLED", True)
     prediction_window = _int("PREDICTION_WINDOW_SECONDS", 300)
 
-    # --- agente de escritorio (Rust) ---
+    # --- desktop agent (Rust) ---
     agent_token = _str("AGENT_TOKEN")
     agent_host = _str("AGENT_HOST", "0.0.0.0")
     agent_port = _int("AGENT_PORT", 8787)
     agent_debounce = _int("AGENT_DEBOUNCE_SECONDS", 15)
 
-    # --- control local del chat ---
+    # --- local chat control ---
     chat_control_host = _str("CHAT_CONTROL_HOST", "127.0.0.1")
     chat_control_port = _int("CHAT_CONTROL_PORT", 8790)
 
-    # --- historial persistente del chat ---
+    # --- persistent chat history ---
     database_url = _str("DATABASE_URL")
     llm_api_key = _str("LLM_API_KEY")
     llm_model = _str("LLM_MODEL", "gpt-4o-mini")
@@ -104,7 +104,7 @@ class Config:
     google_sa_file = _str("GOOGLE_SERVICE_ACCOUNT_FILE", "secrets/service-account.json")
     gdrive_folder_id = _str("GDRIVE_FOLDER_ID")
 
-    # --- rutas ---
+    # --- paths ---
     root = ROOT
     data_dir = DATA_DIR
     log_dir = LOG_DIR
@@ -115,11 +115,11 @@ class Config:
 
     @property
     def bot_login(self) -> str:
-        """Cuenta que escribe en el chat; cae al broadcaster si no se configuró."""
+        """Account that writes in chat; falls back to the broadcaster if not set."""
         return self.twitch_bot_login or self.twitch_channel
 
     def say_as(self, text: str) -> str:
-        """Devuelve el mensaje sin una firma redundante del bot."""
+        """Returns the message without a redundant bot signature."""
         return text
 
     @property
@@ -128,7 +128,7 @@ class Config:
         return p if p.is_absolute() else ROOT / p
 
     def missing(self, *keys: str) -> list[str]:
-        """Devuelve los nombres de config vacíos entre los pedidos."""
+        """Returns which of the requested config names are empty."""
         return [k for k in keys if not getattr(self, k, None)]
 
 

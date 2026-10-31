@@ -35,7 +35,7 @@ import { MatButtonModule } from '@angular/material/button';
         <div class="topbar-right">
           <span class="live-badge">
             <span class="live-dot"></span>
-            EN VIVO
+            LIVE
           </span>
         </div>
       </header>

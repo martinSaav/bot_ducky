@@ -1,10 +1,10 @@
-"""Tests para src/twitch/chat.py — parse_line, ChatMessage properties, RateLimiter.
+"""Tests for src/twitch/chat.py — parse_line, ChatMessage properties, RateLimiter.
 
-No se testa el cliente WebSocket completo (requiere red). Se cubre:
-* Parsing de líneas IRCv3 con y sin tags
-* Propiedades derivadas de ChatMessage (badges, is_mod, is_vip, is_privileged)
+The full WebSocket client is not tested (it needs the network). Covered:
+* Parsing IRCv3 lines with and without tags
+* Derived ChatMessage properties (badges, is_mod, is_vip, is_privileged)
 * _unescape_tag
-* RateLimiter básico
+* Basic RateLimiter
 
 Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 """
@@ -77,7 +77,7 @@ class TestParseLine:
         assert tags["user-id"] == "467734820"
 
     def test_parseLine_WithTrailingColonInMessage_ParsesTrailing(self):
-        """El trailing puede contener ':' en el mensaje."""
+        """The trailing part may contain ':' in the message."""
         line = ":user!user@user.tmi.twitch.tv PRIVMSG #chan :hello: world"
         _, _, _, _, trailing = parse_line(line)
         assert trailing == "hello: world"
@@ -196,21 +196,21 @@ class TestRateLimiter:
         for _ in range(5):
             await rl.acquire()
         elapsed = time.monotonic() - start
-        assert elapsed < 0.5, "Debería adquirir sin esperar"
+        assert elapsed < 0.5, "Should acquire without waiting"
 
     async def test_RateLimiter_acquire_AtLimit_WaitsForWindow(self):
-        """Cuando se llena el bucket, la siguiente adquisición debe esperar.
+        """Once the bucket is full, the next acquisition must wait.
 
-        Usamos una ventana muy corta (0.1s) para no alargar los tests.
+        A very short window (0.1s) keeps the tests fast.
         """
         rl = RateLimiter(limit=2, window=0.1)
         await rl.acquire()
         await rl.acquire()
         start = time.monotonic()
-        # Esta tercera adquisición tiene que esperar hasta que expire la ventana
+        # This third acquisition has to wait until the window expires
         await asyncio.wait_for(rl.acquire(), timeout=1.0)
         elapsed = time.monotonic() - start
-        assert elapsed >= 0.05, "Debería haber esperado parte de la ventana"
+        assert elapsed >= 0.05, "Should have waited for part of the window"
 
     def test_RateLimiter_configure_UpdatesLimitAndWindow(self):
         rl = RateLimiter(limit=5, window=30.0)

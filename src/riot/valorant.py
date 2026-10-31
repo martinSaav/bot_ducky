@@ -1,17 +1,20 @@
-"""Valorant via HenrikDev (wrapper comunitario) y API local del cliente.
+"""Valorant through HenrikDev (community wrapper) and the client's local API.
 
-Riot no da acceso publico a la API de Valorant, asi que se usa el estandar
-de facto de la comunidad: https://docs.henrikdev.xyz
-La key se pide en su Discord y va en el header Authorization.
+Riot gives no public access to the Valorant API, so the community's de facto
+standard is used: https://docs.henrikdev.xyz
+The key is requested on their Discord and goes in the Authorization header.
 
-Las respuestas se parsean de forma defensiva y con fallback de version,
-porque es una API de terceros que cambia sin previo aviso.
+Responses are parsed defensively and with version fallbacks, because it is a
+third-party API that changes without notice.
 
-Ademas, para saber si hay una partida activa, se lee la presencia local del
-cliente (/chat/v4/presences), cuando el bot corre en la misma PC que el juego.
-El cliente escribe un lockfile con el puerto y la contrasena para conectarse a
-https://127.0.0.1:{port}. En el uso normal esto lo hace el agente en la PC de
-la streamer; esta copia es el respaldo.
+To know whether a match is active, the client's local presence is read
+(/chat/v4/presences) when the bot runs on the same PC as the game. The client
+writes a lockfile with the port and password to connect to
+https://127.0.0.1:{port}. In normal use the agent does this on the streamer's
+PC; this copy is the fallback.
+
+Error messages and rank/match texts are in Spanish on purpose: they are sent
+to Twitch chat.
 """
 from __future__ import annotations
 
@@ -28,10 +31,10 @@ import aiohttp
 from ..config import cfg
 from ..util import TTLCache, split_riot_id
 
-# Ruta del lockfile que Valorant escribe mientras esta abierto.
+# Path of the lockfile Valorant writes while it is open.
 _LOCKFILE = Path.home() / "AppData" / "Local" / "Riot Games" / "Riot Client" / "Config" / "lockfile"
 
-# Contexto SSL que acepta el certificado auto-firmado del cliente local.
+# SSL context that accepts the local client's self-signed certificate.
 _SSL_CTX = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 _SSL_CTX.check_hostname = False
 _SSL_CTX.verify_mode = ssl.CERT_NONE
@@ -47,7 +50,7 @@ class ValorantError(RuntimeError):
 
 
 def _dig(data: Any, *path: str, default: Any = None) -> Any:
-    """Navega dicts anidados sin explotar si falta una clave."""
+    """Walks nested dicts without blowing up when a key is missing."""
     cur = data
     for key in path:
         if not isinstance(cur, dict):
@@ -60,7 +63,7 @@ _PHASES = {"MENUS": "menus", "PREGAME": "pregame", "INGAME": "in_game"}
 
 
 def _first(data: Any, *paths: tuple[str, ...]) -> Any:
-    """Primer valor no nulo entre varias rutas posibles dentro de un dict."""
+    """First non-null value among several possible paths in a dict."""
     for path in paths:
         cur = data
         for key in path:
@@ -71,23 +74,23 @@ def _first(data: Any, *paths: tuple[str, ...]) -> Any:
 
 
 def decode_presence_private(encoded: Any) -> dict[str, Any] | None:
-    """Decodifica el campo `private` de una presencia (base64 con JSON)."""
+    """Decodes a presence's `private` field (base64-encoded JSON)."""
     if not isinstance(encoded, str) or not encoded:
         return None
     try:
         padded = encoded.replace("-", "+").replace("_", "/") + "=" * (-len(encoded) % 4)
         data = json.loads(base64.b64decode(padded))
-    except ValueError:  # binascii.Error, JSONDecodeError y UnicodeDecodeError lo son
+    except ValueError:  # binascii.Error, JSONDecodeError and UnicodeDecodeError all are
         return None
     return data if isinstance(data, dict) else None
 
 
 def parse_presence_phase(private: Any) -> str | None:
-    """Fase de la partida en la presencia privada: menus, pregame o in_game.
+    """Match phase in the private presence: menus, pregame or in_game.
 
-    Riot reestructuro la presencia: el formato viejo es plano
-    (`sessionLoopState`) y el nuevo agrupa por objeto (`matchPresenceData`).
-    Se prueban los dos. Un estado desconocido se devuelve tal cual.
+    Riot restructured the presence: the old format is flat
+    (`sessionLoopState`) and the new one groups fields into objects
+    (`matchPresenceData`). Both are tried. An unknown state is returned as is.
     """
     raw = _first(
         private,
@@ -102,10 +105,10 @@ def parse_presence_phase(private: Any) -> str | None:
 
 
 class ValorantLocalClient:
-    """Accede a la API local del cliente de Valorant via lockfile.
+    """Accesses the Valorant client's local API through its lockfile.
 
-    No requiere configuracion adicional; funciona mientras el juego esta
-    abierto en la misma maquina donde corre el bot.
+    Needs no extra configuration; it works while the game is open on the same
+    machine the bot runs on.
     """
 
     def __init__(self, session: aiohttp.ClientSession):
@@ -115,14 +118,14 @@ class ValorantLocalClient:
 
     @property
     def configured(self) -> bool:
-        """True si el lockfile de Valorant existe (cliente abierto)."""
+        """True if the Valorant lockfile exists (client open)."""
         return _LOCKFILE.exists()
 
     def _read_lockfile(self) -> tuple[int, str] | None:
-        """Devuelve (puerto, contrasena) del lockfile, o None si no existe."""
+        """Returns (port, password) from the lockfile, or None if it does not exist."""
         try:
             parts = _LOCKFILE.read_text(encoding="utf-8").strip().split(":")
-            # formato: name:pid:port:password:protocol
+            # format: name:pid:port:password:protocol
             if len(parts) < 5:
                 return None
             return int(parts[2]), parts[3]
@@ -149,7 +152,7 @@ class ValorantLocalClient:
             return None
 
     async def local_puuid(self) -> str | None:
-        """PUUID de la cuenta logueada en el cliente local."""
+        """PUUID of the account signed in to the local client."""
         if self._puuid:
             return self._puuid
         lf = self._read_lockfile()
@@ -157,14 +160,14 @@ class ValorantLocalClient:
             return None
         port, password = lf
         data = await self._local_get(port, password, "/chat/v1/session")
-        # El campo se llama `puuid`; algunas versiones viejas usaban `subject`.
+        # The field is called `puuid`; some older versions used `subject`.
         puuid = (data or {}).get("puuid") or (data or {}).get("subject")
         if puuid:
             self._puuid = puuid
         return puuid
 
     async def match_phase(self) -> str | None:
-        """Fase de la partida segun la presencia local, o None si no se pudo leer."""
+        """Match phase according to the local presence, or None if it could not be read."""
         lf = self._read_lockfile()
         if lf is None:
             return None
@@ -187,15 +190,15 @@ class ValorantLocalClient:
         return parse_presence_phase(private) if private else None
 
     async def active_match_id(self) -> str | None:
-        """Clave de la partida activa segun la presencia local, o None.
+        """Key of the active match according to the local presence, or None.
 
-        La presencia no trae un ID de partida, asi que se crea una clave al
-        salir de los menus y se suelta al volver, igual que hace el agente.
-        Antes se pedia /core-game a localhost, donde ese endpoint no existe:
-        vive en los servidores remotos de Riot y siempre devolvia 404.
+        The presence carries no match ID, so a key is created when leaving the
+        menus and released when going back, just like the agent does. It used
+        to ask localhost for /core-game, where that endpoint does not exist: it
+        lives on Riot's remote servers and always returned 404.
         """
         if self._read_lockfile() is None:
-            self._puuid = None  # el cliente se cerro; limpiamos el cache
+            self._puuid = None  # the client closed; clear the cache
             self._match_id = None
             return None
         phase = await self.match_phase()
@@ -206,7 +209,7 @@ class ValorantLocalClient:
         if phase == "menus":
             self._match_id = None
             return None
-        # Sin lectura o con un estado desconocido no se toca la partida.
+        # With no reading, or an unknown state, the match is left as is.
         return self._match_id
 
 
@@ -321,7 +324,7 @@ class ValorantClient:
         return self._match.set(target.lower(), f"{target} | {text}")
 
     async def last_match_won(self, riot_id: str | None = None) -> bool | None:
-        """Devuelve el resultado explicito de la partida mas reciente."""
+        """Returns the explicit result of the most recent match."""
         name, tag = self._target(riot_id)
         region = cfg.valorant_region
         body = await self._get(

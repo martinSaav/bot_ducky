@@ -14,8 +14,8 @@ import { Source } from '../../models/bot-status';
       <mat-card class="dash-card">
         <mat-card-header>
           <mat-icon mat-card-avatar class="card-icon">sensors</mat-icon>
-          <mat-card-title>Fuentes</mat-card-title>
-          <mat-card-subtitle>Agente y Discord</mat-card-subtitle>
+          <mat-card-title>Sources</mat-card-title>
+          <mat-card-subtitle>Agent and Discord</mat-card-subtitle>
         </mat-card-header>
         <mat-card-content>
           @for (entry of s.sources | keyvalue; track entry.key) {
@@ -25,12 +25,12 @@ import { Source } from '../../models/bot-status';
                 <span class="source-name">{{ entry.key }}</span>
                 <span class="status-dot" [class.active]="!entry.value.stale" [class.stale]="entry.value.stale"></span>
                 <span class="status-label" [class.active]="!entry.value.stale" [class.stale]="entry.value.stale">
-                  {{ entry.value.stale ? 'stale' : 'activo' }}
+                  {{ entry.value.stale ? 'stale' : 'active' }}
                 </span>
               </div>
               <div class="source-details">
                 <span class="detail-item">
-                  <span class="detail-label">Juego</span>
+                  <span class="detail-label">Game</span>
                   <span class="detail-val">{{ entry.value.game ?? '–' }}</span>
                 </span>
                 @if (entry.value.match_id) {
@@ -40,8 +40,8 @@ import { Source } from '../../models/bot-status';
                   </span>
                 }
                 <span class="detail-item">
-                  <span class="detail-label">Último reporte</span>
-                  <span class="detail-val mono">hace {{ entry.value.age_seconds }}s</span>
+                  <span class="detail-label">Last report</span>
+                  <span class="detail-val mono">{{ entry.value.age_seconds }}s ago</span>
                 </span>
                 @if (entry.value.stale_after) {
                   <span class="detail-item">
@@ -52,7 +52,7 @@ import { Source } from '../../models/bot-status';
               </div>
             </div>
           } @empty {
-            <p class="empty">Sin fuentes reportando</p>
+            <p class="empty">No sources reporting</p>
           }
         </mat-card-content>
       </mat-card>

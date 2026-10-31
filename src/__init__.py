@@ -1,8 +1,8 @@
-"""Bot de moderacion para Twitch.
+"""Twitch moderation bot.
 
-La consola de Windows arranca en cp1252 y rompe los acentos de los mensajes
-(los deja como 'fall?'). Forzamos UTF-8 apenas se importa el paquete, antes
-de que cualquier entrypoint imprima algo.
+The Windows console starts in cp1252 and mangles accented characters in
+messages (they show up as 'fall?'). UTF-8 is forced as soon as the package
+is imported, before any entry point prints anything.
 """
 from __future__ import annotations
 
@@ -12,5 +12,5 @@ for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
-        # stdout redirigido a algo que no es un TextIOWrapper: no pasa nada.
+        # stdout redirected to something that is not a TextIOWrapper: that is fine.
         pass

@@ -14,16 +14,16 @@ import { BotApiService } from '../../services/bot-api';
       <mat-card class="dash-card status-card">
         <mat-card-header>
           <mat-icon mat-card-avatar class="card-icon">videogame_asset</mat-icon>
-          <mat-card-title>Estado actual</mat-card-title>
+          <mat-card-title>Current status</mat-card-title>
           <mat-card-subtitle>twitch.tv/{{ s.channel }}</mat-card-subtitle>
         </mat-card-header>
         <mat-card-content>
           <div class="stat-row">
-            <span class="label">Juego</span>
-            <span class="value game-name">{{ s.current_game ?? 'Sin juego' }}</span>
+            <span class="label">Game</span>
+            <span class="value game-name">{{ s.current_game ?? 'No game' }}</span>
           </div>
           <div class="stat-row">
-            <span class="label">Fuente</span>
+            <span class="label">Source</span>
             <span class="value source-badge" [ngClass]="s.current_source ?? 'none'">
               <mat-icon class="inline-icon">{{ sourceIcon(s.current_source) }}</mat-icon>
               {{ s.current_source ?? '–' }}
@@ -52,7 +52,7 @@ import { BotApiService } from '../../services/bot-api';
     } @else {
       <mat-card class="dash-card status-card loading">
         <mat-card-content>
-          <span class="loading-text">Conectando con el bot…</span>
+          <span class="loading-text">Connecting to the bot…</span>
         </mat-card-content>
       </mat-card>
     }

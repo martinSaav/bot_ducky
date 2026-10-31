@@ -1,4 +1,4 @@
-"""Tests para src/util.py
+"""Tests for src/util.py
 
 Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 """
@@ -42,9 +42,9 @@ class TestTTLCache:
         cache = TTLCache(ttl=0.05)
         cache.set("key", "v1")
         time.sleep(0.03)
-        cache.set("key", "v2")  # renueva el TTL
+        cache.set("key", "v2")  # renews the TTL
         time.sleep(0.03)
-        # En total pasaron 0.06s pero el TTL se renovó a los 0.03s
+        # 0.06s passed in total, but the TTL was renewed at 0.03s
         assert cache.get("key") == "v2"
 
     def test_TTLCache_clear_Always_EmptiesCache(self):
@@ -56,13 +56,13 @@ class TestTTLCache:
         assert cache.get("b") is None
 
     def test_TTLCache_set_WithFalsyValue_StillStored(self):
-        """0, False y [] son valores válidos, no None."""
+        """0, False and [] are valid values, not None."""
         cache = TTLCache(ttl=60)
         cache.set("zero", 0)
         cache.set("false", False)
         cache.set("empty_list", [])
-        # get() devuelve None solo si la clave no existe o expiró
-        # Para valores falsy el método simplemente los retorna tal cual
+        # get() returns None only if the key does not exist or expired
+        # For falsy values the method simply returns them as they are
         assert cache.get("zero") == 0
         assert cache.get("false") is False
         assert cache.get("empty_list") == []
@@ -127,9 +127,9 @@ class TestSplitRiotId:
         assert split_riot_id(None) is None  # type: ignore[arg-type]
 
     def test_split_riot_id_WithMultipleHashes_SplitsOnLast(self):
-        """Nombre con # interno: parte antes del último # es el nombre."""
+        """Name with an inner #: the part before the last # is the name."""
         result = split_riot_id("Chaar#Queen#LAS")
-        # rpartition en el último #
+        # rpartition on the last #
         assert result == ("Chaar#Queen", "LAS")
 
 

@@ -1,4 +1,4 @@
-"""Utilidades chicas compartidas."""
+"""Small shared helpers."""
 from __future__ import annotations
 
 import time
@@ -6,7 +6,7 @@ from typing import Any
 
 
 class TTLCache:
-    """Cache en memoria con vencimiento. Protege las cuotas de las APIs."""
+    """In-memory cache with expiry. Protects the APIs' quotas."""
 
     def __init__(self, ttl: float):
         self.ttl = ttl

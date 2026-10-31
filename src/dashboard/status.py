@@ -1,8 +1,8 @@
-"""Estado del bot serializable para el dashboard web.
+"""Serializable bot state for the web dashboard.
 
-StatusProvider recolecta información de todos los subsistemas en un dict
-listo para ser enviado como JSON. WSBroadcaster gestiona las conexiones
-WebSocket activas y hace push de eventos en tiempo real.
+StatusProvider collects information from every subsystem into a dict ready to
+be sent as JSON. WSBroadcaster manages the active WebSocket connections and
+pushes real-time events.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ log = logging.getLogger("dashboard")
 
 
 class WSBroadcaster:
-    """Gestiona las conexiones WebSocket activas y hace broadcast de eventos."""
+    """Manages the active WebSocket connections and broadcasts events."""
 
     def __init__(self) -> None:
         self._sockets: set[web.WebSocketResponse] = set()
@@ -36,7 +36,7 @@ class WSBroadcaster:
         self._sockets.discard(ws)
 
     async def broadcast(self, event: str, data: Any) -> None:
-        """Envía un evento a todos los clientes WebSocket conectados."""
+        """Sends an event to every connected WebSocket client."""
         if not self._sockets:
             return
         payload = json.dumps({"event": event, "data": data, "ts": time.time()})
@@ -58,10 +58,10 @@ class WSBroadcaster:
 
 
 class StatusProvider:
-    """Recolecta el estado de todos los subsistemas del bot.
+    """Collects the state of every bot subsystem.
 
-    Se pasan referencias débiles a los objetos vivos; StatusProvider solo
-    los lee, nunca los modifica.
+    It receives references to the live objects; StatusProvider only reads
+    them, never modifies them.
     """
 
     def __init__(
@@ -80,8 +80,7 @@ class StatusProvider:
         self.valorant = valorant
         self.broadcaster = broadcaster or WSBroadcaster()
 
-        # Flags de subsistemas activos, seteados por run.py después de
-        # arrancar cada subsistema.
+        # Flags for the active subsystems, set by run.py after each one starts.
         self.chat_active = False
         self.discord_active = False
         self.agent_active = False
@@ -94,7 +93,7 @@ class StatusProvider:
         self.start_time: float = time.time()
 
     def snapshot(self) -> dict[str, Any]:
-        """Devuelve el estado completo del bot como dict JSON-serializable."""
+        """Returns the full bot state as a JSON-serializable dict."""
         sources_raw = self.arbiter.sources()
         sources = {}
         for name, report in sources_raw.items():
@@ -106,7 +105,7 @@ class StatusProvider:
                 "stale_after": report.stale_after,
             }
 
-        # Juego ganador (el que se aplica en Twitch)
+        # Winning game (the one applied on Twitch)
         live = [(s, r) for s, r in sources_raw.items() if not r.stale]
         winner_source, winner_game = None, None
         if live:
@@ -116,7 +115,7 @@ class StatusProvider:
             )
             winner_game = winner_report.game
 
-        # Prediction activa
+        # Active prediction
         active_pred = self.state.get("prediction_active")
         prediction = None
         if active_pred:
@@ -127,7 +126,7 @@ class StatusProvider:
                 "outcomes": active_pred.get("outcomes", {}),
             }
 
-        # Historial de chat reciente (últimos 20)
+        # Recent chat history (last 20)
         recent = self.history.since(3600)
         chat_recent = [
             {

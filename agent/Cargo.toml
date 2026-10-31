@@ -2,12 +2,12 @@
 name = "twitch-game-agent"
 version = "0.1.0"
 edition = "2021"
-description = "Detecta que juego esta corriendo y se lo avisa al bot de Twitch"
+description = "Detects which game is running and tells the Twitch bot"
 
 [dependencies]
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
-# Sin TLS a proposito: el enlace ya va cifrado por Tailscale (WireGuard) y
-# las llamadas HTTPS a las APIs locales de Riot las delega a curl.exe.
+# No TLS on purpose: the link is already encrypted by Tailscale (WireGuard),
+# and HTTPS calls to Riot's local APIs are delegated to curl.exe.
 ureq = { version = "2.10", default-features = false, features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -16,8 +16,8 @@ const MAX_MESSAGES = 100;
     <mat-card class="dash-card chat-card">
       <mat-card-header>
         <mat-icon mat-card-avatar class="card-icon">forum</mat-icon>
-        <mat-card-title>Chat en vivo</mat-card-title>
-        <mat-card-subtitle>{{ messages().length }} mensajes</mat-card-subtitle>
+        <mat-card-title>Live chat</mat-card-title>
+        <mat-card-subtitle>{{ messages().length }} messages</mat-card-subtitle>
       </mat-card-header>
       <mat-card-content>
         <div class="chat-feed" #feedEl>
@@ -28,7 +28,7 @@ const MAX_MESSAGES = 100;
               <span class="msg-time">{{ msg.ts * 1000 | date:'HH:mm:ss' }}</span>
             </div>
           } @empty {
-            <p class="empty-chat">Esperando mensajes del chat…</p>
+            <p class="empty-chat">Waiting for chat messages…</p>
           }
         </div>
       </mat-card-content>

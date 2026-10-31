@@ -1,11 +1,11 @@
-//! Fecha y hora sin dependencias externas.
+//! Date and time without external dependencies.
 //!
-//! Se usa kernel32 directamente en vez de traer `chrono`: esa cadena de
-//! dependencias termina en `windows-core`, que en el target GNU enlaza por
-//! raw-dylib y exige un toolchain de C completo (dlltool + as) que rustup no
-//! trae. Con dos llamadas del sistema alcanza y el binario queda mas chico.
+//! kernel32 is used directly instead of pulling in `chrono`: that dependency
+//! chain ends in `windows-core`, which on the GNU target links through
+//! raw-dylib and needs a full C toolchain (dlltool + as) that rustup does not
+//! ship. Two system calls are enough, and the binary stays smaller.
 
-/// Espejo de SYSTEMTIME de la API de Windows.
+/// Mirror of the Windows API SYSTEMTIME struct.
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 struct SystemTime {
@@ -27,8 +27,8 @@ extern "system" {
 
 fn local() -> SystemTime {
     let mut t = SystemTime::default();
-    // Seguro: le pasamos un puntero valido a memoria que es nuestra y del
-    // tamano exacto que la API espera rellenar.
+    // Safe: we pass a valid pointer to memory we own, of the exact size
+    // the API expects to fill.
     unsafe { GetLocalTime(&mut t) };
     t
 }
@@ -39,7 +39,7 @@ fn utc() -> SystemTime {
     t
 }
 
-/// Hora local, legible, para el archivo de log: `2026-09-09 14:32:07`.
+/// Readable local time for the log file: `2026-09-09 14:32:07`.
 pub fn log_stamp() -> String {
     let t = local();
     format!(
@@ -48,10 +48,10 @@ pub fn log_stamp() -> String {
     )
 }
 
-/// UTC en ISO 8601 para mandar por la red: `2026-09-09T17:32:07Z`.
+/// UTC in ISO 8601 to send over the network: `2026-09-09T17:32:07Z`.
 ///
-/// Va en UTC a proposito: no depende de la zona horaria de la PC de nadie y
-/// Python lo parsea con `datetime.fromisoformat` sin ambiguedad.
+/// UTC on purpose: it does not depend on anyone's PC time zone, and Python
+/// parses it with `datetime.fromisoformat` without ambiguity.
 pub fn iso_utc() -> String {
     let t = utc();
     format!(

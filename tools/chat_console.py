@@ -1,6 +1,6 @@
-"""Consola separada para enviar mensajes al bot ya iniciado.
+"""Separate console for sending messages through the running bot.
 
-Uso:
+Usage:
     python tools/chat_console.py
 """
 from __future__ import annotations
@@ -26,11 +26,11 @@ def send(text: str) -> None:
     )
     with urllib.request.urlopen(request, timeout=5) as response:
         if response.status != 200:
-            raise RuntimeError(f"el bot respondio HTTP {response.status}")
+            raise RuntimeError(f"the bot answered HTTP {response.status}")
 
 
 def main() -> int:
-    print("Consola de chat. Escribi un mensaje o :quit para cerrar esta ventana.")
+    print("Chat console. Type a message, or :quit to close this window.")
     while True:
         try:
             text = input("chat> ").strip()
@@ -39,12 +39,13 @@ def main() -> int:
             return 0
         if not text:
             continue
+        # ":salir" (Spanish for "exit") is still accepted.
         if text.lower() in (":quit", ":salir"):
             return 0
         try:
             send(text)
         except (OSError, urllib.error.URLError) as exc:
-            print(f"[X] No se pudo enviar: {exc}")
+            print(f"[X] Could not send: {exc}")
         except RuntimeError as exc:
             print(f"[X] {exc}")
 

@@ -1,12 +1,14 @@
-"""Tests para src/commands/registry.py — dispatch, cooldowns, permisos, comandos.
+"""Tests for src/commands/registry.py — dispatch, cooldowns, permissions, commands.
 
 Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 
-Estrategia de aislamiento
---------------------------
-* ``cfg`` se parchea para que Registry no lea el .env real.
-* Services se pasa como MagicMock (fixture mock_services en conftest.py).
-* El chat (svc.chat.say) es AsyncMock para verificar las respuestas.
+Isolation strategy
+------------------
+* ``cfg`` is patched so Registry does not read the real .env.
+* Services is passed as a MagicMock (mock_services fixture in conftest.py).
+* Chat (svc.chat.say) is an AsyncMock to check the replies.
+
+The replies checked here are in Spanish because that is what viewers read.
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ from tests.conftest import make_message
 
 
 # ---------------------------------------------------------------------------
-# Fixture local: Registry con cfg mockeado
+# Local fixture: Registry with a mocked cfg
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -32,7 +34,7 @@ def registry(mock_services):
 
 
 # ===========================================================================
-# dispatch — routing básico
+# dispatch — basic routing
 # ===========================================================================
 
 class TestDispatchRouting:
@@ -55,7 +57,7 @@ class TestDispatchRouting:
     async def test_dispatch_WhenCommandWithArgs_PassesArgsToHandler(
         self, registry, mock_services
     ):
-        """!recargar no tiene args pero verifica que el handler se llama."""
+        """!recargar takes no args, but this checks the handler is called."""
         msg = make_message(text="!recargar", is_mod=True)
         await registry.dispatch(msg)
         mock_services.chat.say.assert_called_once()
@@ -72,7 +74,7 @@ class TestDispatchPermissions:
     async def test_dispatch_WhenModOnlyAndViewer_DoesNothing(
         self, registry, mock_services
     ):
-        """Viewer usando comando de mod → silencio total."""
+        """Viewer using a mod command → complete silence."""
         msg = make_message(text="!categoria Just Chatting", is_mod=False)
         await registry.dispatch(msg)
         mock_services.chat.say.assert_not_called()
@@ -80,7 +82,7 @@ class TestDispatchPermissions:
     async def test_dispatch_WhenModOnlyAndMod_ExecutesCommand(
         self, registry, mock_services
     ):
-        """Mod puede usar comandos de mod."""
+        """A mod can use mod commands."""
         msg = make_message(text="!recargar", is_mod=True)
         await registry.dispatch(msg)
         mock_services.chat.say.assert_called_once()
@@ -88,7 +90,7 @@ class TestDispatchPermissions:
     async def test_dispatch_WhenModOnlyAndBroadcaster_ExecutesCommand(
         self, registry, mock_services
     ):
-        """Broadcaster (is_broadcaster → is_mod=True) puede usar comandos de mod."""
+        """Broadcaster (is_broadcaster → is_mod=True) can use mod commands."""
         msg = make_message(text="!recargar", is_broadcaster=True)
         await registry.dispatch(msg)
         mock_services.chat.say.assert_called_once()
@@ -103,18 +105,18 @@ class TestDispatchCooldown:
     async def test_dispatch_WhenCooldownActive_SecondCallIgnored(
         self, registry, mock_services
     ):
-        """Segunda llamada del mismo comando dentro del cooldown es ignorada."""
+        """A second call of the same command within the cooldown is ignored."""
         msg1 = make_message(text="!comandos", message_id="m1")
         msg2 = make_message(text="!comandos", message_id="m2")
         await registry.dispatch(msg1)
         await registry.dispatch(msg2)
-        # Solo debe haberse enviado una respuesta
+        # Only one reply must have been sent
         assert mock_services.chat.say.call_count == 1
 
     async def test_dispatch_WhenCooldownActiveAndMod_SecondCallExecutes(
         self, registry, mock_services
     ):
-        """Mods bypasean el cooldown siempre."""
+        """Mods always bypass the cooldown."""
         msg1 = make_message(text="!recargar", is_mod=True, message_id="m1")
         msg2 = make_message(text="!recargar", is_mod=True, message_id="m2")
         await registry.dispatch(msg1)
@@ -124,7 +126,7 @@ class TestDispatchCooldown:
     async def test_dispatch_WhenCooldownActiveAndVip_SecondCallExecutes(
         self, registry, mock_services
     ):
-        """VIPs también bypasean el cooldown."""
+        """VIPs bypass the cooldown too."""
         msg1 = make_message(text="!recargar", is_mod=True, is_vip=True, message_id="m1")
         msg2 = make_message(text="!recargar", is_mod=True, is_vip=True, message_id="m2")
         await registry.dispatch(msg1)
@@ -132,8 +134,8 @@ class TestDispatchCooldown:
         assert mock_services.chat.say.call_count == 2
 
     async def test_dispatch_AfterCooldownExpires_AllowsNewCall(self, registry, mock_services):
-        """Después de que el cooldown expira, el comando vuelve a ejecutarse."""
-        # Forzar el cooldown como si ya expiró: ponemos last_used en el pasado
+        """Once the cooldown expires, the command runs again."""
+        # Force the cooldown as if it already expired: put last_used in the past
         registry._last_used["comandos"] = time.monotonic() - 999
         msg = make_message(text="!comandos", message_id="m1")
         await registry.dispatch(msg)
@@ -150,7 +152,7 @@ class TestCmdHelp:
         msg = make_message(text="!comandos", is_mod=False)
         await registry.dispatch(msg)
         response = mock_services.chat.say.call_args[0][0]
-        # Comandos de mod no deben aparecer
+        # Mod commands must not appear
         assert "!categoria" not in response
         assert "!auto" not in response
         assert "!recargar" not in response
@@ -170,11 +172,11 @@ class TestCmdHelp:
         assert "!recargar" in response
 
     async def test_cmdHelp_DoesNotDuplicateAliasedCommands(self, registry, mock_services):
-        """Comandos con alias no deben aparecer duplicados."""
+        """Commands with aliases must not appear twice."""
         msg = make_message(text="!comandos", is_mod=True)
         await registry.dispatch(msg)
         response = mock_services.chat.say.call_args[0][0]
-        # "lrank" no debería aparecer más de una vez
+        # "lrank" should not appear more than once
         assert response.count("!lrank") == 1
 
 
@@ -252,7 +254,7 @@ class TestCmdReload:
 
 
 # ===========================================================================
-# cmd_rank (LoL — lógica de configuración)
+# cmd_rank (LoL — configuration logic)
 # ===========================================================================
 
 class TestCmdRank:
@@ -295,7 +297,7 @@ class TestAliases:
         mock_services.lol.configured = False
         msg = make_message(text="!elo")
         await registry.dispatch(msg)
-        # Mismo handler que !lrank → misma respuesta
+        # Same handler as !lrank → same reply
         response = mock_services.chat.say.call_args[0][0]
         assert "configurad" in response.lower()
 

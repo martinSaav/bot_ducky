@@ -1,12 +1,13 @@
-"""Tests para src/gamesource.py — Report, GameArbiter.
+"""Tests for src/gamesource.py — Report, GameArbiter.
 
 Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 
-Estrategia de aislamiento
---------------------------
-* ``cfg`` se parchea en el fixture ``mock_arbiter`` (conftest.py).
-* Helix y CategoryResolver se reemplazan con mocks.
-* No se testea la lógica de prediction de Twitch (requiere integración con Helix).
+Isolation strategy
+------------------
+* ``cfg`` is patched in the ``mock_arbiter`` fixture (conftest.py).
+* Helix and CategoryResolver are replaced with mocks.
+* Twitch prediction logic is not tested here (see test_gamesource_predictions.py
+  and test_predictions_local.py).
 """
 from __future__ import annotations
 
@@ -34,17 +35,17 @@ class TestReport:
         assert r.stale is False
 
     def test_stale_WhenExpiredReport_ReturnsTrue(self):
-        # Simulamos que el reporte se hizo hace 500s pero expira a los 300s
+        # Simulate a report made 500s ago that expires after 300s
         r = Report(game="LoL", at=time.monotonic() - 500, stale_after=300)
         assert r.stale is True
 
     def test_stale_WhenJustOnBoundary_ReturnsTrue(self):
-        """stale_after=0 → siempre expirado."""
+        """stale_after=0 → always expired."""
         r = Report(game="LoL", at=time.monotonic() - 1, stale_after=0)
         assert r.stale is True
 
     def test_stale_WhenGameIsNone_BehaviorBasedOnTime(self):
-        """game=None no afecta el cálculo de stale."""
+        """game=None does not affect the stale calculation."""
         fresh = Report(game=None, at=time.monotonic(), stale_after=300)
         assert fresh.stale is False
         old = Report(game=None, at=time.monotonic() - 500, stale_after=300)
@@ -241,6 +242,6 @@ class TestGameArbiterSources:
             )
         arbiter._reports["discord"] = Report(game="LoL", at=time.monotonic(), stale_after=300)
         snapshot = arbiter.sources()
-        # Mutación del snapshot no afecta el estado interno
+        # Mutating the snapshot does not affect the internal state
         del snapshot["discord"]
         assert "discord" in arbiter._reports

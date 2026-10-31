@@ -1,24 +1,24 @@
-# Agente de escritorio
+# Desktop agent
 
-Programa chico en Rust que corre en la PC del streamer. Cada 5 segundos mira si
-hay algún juego de una lista corriendo y le avisa al bot, que es quien cambia la
-categoría del canal.
+A small Rust program that runs on the streamer's PC. Every 5 seconds it checks
+whether a game from a list is running and tells the bot, which is the one that
+changes the channel category.
 
-**No toca Twitch.** No guarda tokens, no tiene el client secret, no sabe nada de
-la cuenta de nadie. Solo dice "ahora está corriendo VALORANT" y corta.
+**It does not touch Twitch.** It stores no tokens, does not have the client
+secret, and knows nothing about anyone's account. It only says "VALORANT is
+running now" and that is it.
 
-## Por qué existe
+## Why it exists
 
-La presencia de Discord funciona, pero depende de que ella tenga activada la
-detección de actividad, de que Discord esté abierto, y de que el juego esté en la
-base de datos de Discord. Mirar el proceso es directo: si `cs2.exe` está en
-memoria, está jugando CS2.
+Discord presence works, but it depends on her having activity detection turned
+on, on Discord being open, and on the game being in Discord's database. Looking
+at the process is direct: if `cs2.exe` is in memory, she is playing CS2.
 
-El agente **le gana** a Discord cuando los dos están activos. Si el agente se cae
-o la PC lo tiene apagado, el bot vuelve solo a la presencia de Discord después de
-210 segundos sin noticias.
+The agent **wins over** Discord when both are active. If the agent goes down or
+the PC has it off, the bot falls back to Discord presence on its own after 210
+seconds without news.
 
-## Qué se manda, exactamente
+## What is sent, exactly
 
 ```json
 {
@@ -32,161 +32,164 @@ o la PC lo tiene apagado, el bot vuelve solo a la presencia de Discord después 
     "queue": "competitive",
     "score": { "ally": 7, "enemy": 4 }
   },
-  "host": "PC-DE-CHAAR",
+  "host": "CHAARS-PC",
   "agent_version": "0.1.0",
   "sent_at": "2026-10-30T23:34:00Z"
 }
 ```
 
-`match_id` y `metadata` solo aparecen en Valorant y League, y salen del cliente
-local de cada juego: en qué pantalla está, la partida en curso y, en LoL, quién
-ganó. El detalle de qué se consulta está en
-[`docs/diagrama_agente.md`](../docs/diagrama_agente.md).
+`match_id` and `metadata` only appear for Valorant and League, and they come from
+each game's local client: which screen it is on, the match in progress and, in
+LoL, who won. The details of what is queried are in
+[`docs/agent.md`](../docs/agent.md).
 
-Eso es todo. **Funciona con lista blanca:** solo los juegos declarados en
-`agent.toml` pueden aparecer en ese campo. Cualquier otro programa abierto se
-descarta en el momento y nunca sale de la máquina. No se manda la lista de
-procesos, ni títulos de ventana, ni nada más.
+That is all. **It works with an allowlist:** only the games declared in
+`agent.toml` can show up in that field. Any other open program is discarded on
+the spot and never leaves the machine. The process list, window titles and
+anything else are not sent.
 
-Se manda cuando el juego cambia, y como latido cada 60 segundos. Siempre es el
-estado completo ("juega X" / "no juega nada"), nunca un cambio incremental: si se
-pierde un mensaje, el siguiente latido lo corrige solo.
+It sends when the game changes, and as a heartbeat every 60 seconds. It is always
+the full state ("playing X" / "playing nothing"), never an incremental change: if
+a message is lost, the next heartbeat fixes it on its own.
 
-## Compilar
+## Building
 
-> **El agente es solo para Windows.** Detecta procesos por nombre de `.exe` y
-> pide la hora a `kernel32`, así que no compila en Linux. Es a propósito: corre
-> en la PC donde se juega. El bot, en cambio, corre igual en Windows o en un VPS
-> Linux — el agente le habla por HTTP y no le importa el sistema del otro lado.
+> **The agent is Windows-only.** It detects processes by `.exe` name and asks
+> `kernel32` for the time, so it does not build on Linux. That is on purpose: it
+> runs on the PC where the games are played. The bot, on the other hand, runs
+> the same on Windows or on a Linux VPS — the agent talks to it over HTTP and
+> does not care what system is on the other side.
 
 ```bash
 cargo build --release
 ```
 
-Queda en `target/release/twitch-game-agent.exe` (~800 KB, sin dependencias de
-runtime — no hace falta instalar nada en la PC de destino).
+The result is `target/release/twitch-game-agent.exe` (~1 MB, no runtime
+dependencies — nothing needs to be installed on the target PC).
 
-Si usás el toolchain `x86_64-pc-windows-gnu` de rustup sin Visual Studio, no
-necesitás compilador de C: las dependencias están elegidas para evitarlo. Por eso
-el tiempo se resuelve con llamadas a kernel32 y las consultas HTTPS a las APIs
-locales de Riot (Valorant y LoL) se delegan a `curl.exe`, que viene con Windows
-10/11: no hay que compilar una pila TLS en Rust.
+If you use rustup's `x86_64-pc-windows-gnu` toolchain without Visual Studio, you
+do not need a C compiler: the dependencies are chosen to avoid it. That is why
+the time comes from kernel32 calls and the HTTPS queries to Riot's local APIs
+(Valorant and LoL) are delegated to `curl.exe`, which ships with Windows 10/11:
+no TLS stack has to be compiled in Rust.
 
-> Antes LoL usaba `Invoke-RestMethod -SkipCertificateCheck`, pero ese parámetro
-> solo existe en PowerShell 7 y `powershell.exe` es la 5.1. Fallaba siempre, en
-> silencio.
+> LoL used to use `Invoke-RestMethod -SkipCertificateCheck`, but that parameter
+> only exists in PowerShell 7 and `powershell.exe` is version 5.1. It always
+> failed, silently.
 
-## Configurar
+## Configuring
 
 ```bash
 cp agent.example.toml agent.toml
 ```
 
-> Igual que con el `.env` del bot: `cp` pisa el destino sin avisar. Si ya
-> tenías un `agent.toml` configurado, usá `cp -n` o copialo a mano.
+> Same as with the bot's `.env`: `cp` overwrites the destination without
+> asking. If you already had a configured `agent.toml`, use `cp -n` or copy it
+> by hand.
 
-Dos cosas obligatorias:
+Two things are required:
 
-- **`endpoint`** — la URL del bot. Con Tailscale, `tailscale ip -4` en la PC donde
-  corre el bot te da la IP: `http://100.x.y.z:8787/game`
-- **`token`** — el mismo valor que `AGENT_TOKEN` en el `.env` del bot. Generalo con:
+- **`endpoint`** — the bot's URL. With Tailscale, `tailscale ip -4` on the PC
+  where the bot runs gives you the IP: `http://100.x.y.z:8787/game`
+- **`token`** — the same value as `AGENT_TOKEN` in the bot's `.env`. Generate it with:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-### Probar antes de dejarlo suelto
+### Test it before leaving it running
 
 ```bash
 ./twitch-game-agent.exe --once
 ```
 
-Dice qué detecta ahora mismo y sale. Con un juego abierto tiene que nombrarlo.
-En Valorant y League además muestra lo que lee del cliente local (la fase, la
-partida en curso y cualquier problema con la API): es lo primero que hay que
-mirar si una prediction no se crea.
+It says what it detects right now and exits. With a game open it should name it.
+For Valorant and League it also shows what it reads from the local client (the
+phase, the match in progress and any problem with the API): the first thing to
+check when a prediction is not created.
 
 ```bash
 ./twitch-game-agent.exe --scan
 ```
 
-Lista los procesos en ejecución para averiguar el ejecutable de un juego que
-falte. **Solo imprime en pantalla, no manda nada a ningún lado.**
+Lists the running processes, to find out the executable of a missing game.
+**It only prints on screen; it sends nothing anywhere.**
 
-### Agregar un juego
+### Adding a game
 
-Abrí el juego, corré `--scan`, buscá el ejecutable y agregalo:
+Open the game, run `--scan`, find the executable and add it:
 
 ```toml
 [[games]]
-name = "Silksong"        # nombre EXACTO de la categoría en Twitch
+name = "Silksong"        # EXACT name of the Twitch category
 priority = 20
 processes = ["Silksong.exe"]
 ```
 
-`priority` desempata cuando hay dos coincidencias a la vez. Por eso el cliente de
-Riot está en 10 y la partida en 20: con los dos abiertos, gana la partida.
+`priority` breaks ties when two rules match at once. That is why the Riot client
+is at 10 and the match at 20: with both open, the match wins.
 
-## Dejarlo corriendo solo
+## Leaving it running on its own
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install-autostart.ps1
 ```
 
-El `-ExecutionPolicy Bypass` no es opcional: Windows bloquea los scripts de
-PowerShell por defecto y sin eso falla con *"running scripts is disabled on this
-system"*. La otra opción es click derecho sobre el `.ps1` > **"Ejecutar con
-PowerShell"**, que ya lo hace por su cuenta.
+`-ExecutionPolicy Bypass` is not optional: Windows blocks PowerShell scripts by
+default, and without it the script fails with *"running scripts is disabled on
+this system"*. The other option is right-clicking the `.ps1` > **"Run with
+PowerShell"** ("Ejecutar con PowerShell" on a Spanish Windows), which does it on
+its own.
 
-Crea una tarea programada que lo arranca al iniciar sesión, sin ventana. No pide
-permisos de administrador. Antes de instalar nada valida la configuración, así no
-te queda una tarea que nunca va a andar.
+It creates a scheduled task that starts the agent on sign-in, with no window. It
+does not need administrator rights. Before installing anything it validates the
+configuration, so you are not left with a task that will never work.
 
-Para sacarlo:
+To remove it:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File uninstall-autostart.ps1
 ```
 
-Mientras corre aparece en el Administrador de tareas como `twitch-game-agent.exe`
-y se puede cerrar desde ahí. El log queda en `agent.log`, al lado del ejecutable.
+While it runs it shows up in Task Manager as `twitch-game-agent.exe` and can be
+closed from there. The log is in `agent.log`, next to the executable.
 
-Cada línea nueva se envía inmediatamente y de forma autenticada al endpoint de
-logs del backend. El dashboard las muestra en la fuente `Agente Rust`; si el
-backend no está disponible, siguen quedando en el archivo local y se reenvían
-cuando la conexión vuelve.
+Every new line is sent right away, authenticated, to the backend's logs
+endpoint. The dashboard shows them under the agent source; if the backend is not
+available, they stay in the local file and are re-sent when the connection comes
+back.
 
-## Red
+## Network
 
-El bot escucha en el puerto 8787. Como corre en la PC de Martín y el agente en la
-de ella, hace falta que una llegue a la otra. **Tailscale** es lo más simple:
-instalarlo en las dos PCs con la misma cuenta y listo — arma una red privada, sin
-abrir puertos en el router ni exponer nada a internet.
+The bot listens on port 8787. Since it runs on Martin's PC and the agent on hers,
+one has to reach the other. **Tailscale** is the simplest: install it on both PCs
+with the same account and that is it — it builds a private network, without
+opening ports on the router or exposing anything to the internet.
 
-Para verificar que se ven, desde la PC de ella:
+To check they can see each other, from her PC:
 
 ```
 http://100.x.y.z:8787/health
 ```
 
-Tiene que devolver `{"ok": true, ...}`.
+It should return `{"ok": true, ...}`.
 
-**Sobre TLS:** el binario se compila sin soporte de HTTPS a propósito. El túnel de
-Tailscale ya va cifrado con WireGuard, así que HTTP adentro de la tailnet no viaja
-en claro por internet. Si algún día el bot pasa a un VPS con URL pública, hay que
-ponerle un proxy inverso con TLS adelante, o recompilar `ureq` con la feature
-`native-tls`. El agente rechaza un `endpoint` con `https://` en vez de fallar de
-forma rara al primer envío.
+**About TLS:** the binary is built without HTTPS support on purpose. The
+Tailscale tunnel is already encrypted with WireGuard, so HTTP inside the tailnet
+does not travel in the clear over the internet. If the bot ever moves to a VPS
+with a public URL, put a TLS reverse proxy in front of it, or rebuild `ureq`
+with the `native-tls` feature. The agent rejects an `endpoint` with `https://`
+instead of failing in an odd way on the first send.
 
-## Estructura
+## Layout
 
 ```
-src/main.rs      CLI, bucle principal y log
-src/config.rs    lectura y validación de agent.toml
-src/detect.rs    enumeración de procesos y lista blanca
-src/report.rs    envío HTTP al bot
-src/clock.rs     fecha y hora vía kernel32, sin dependencias
-src/local.rs     curl, lockfile, base64 y diagnósticos de las APIs locales
-src/valorant.rs  estado de partida desde la presencia local del Riot Client
-src/lol.rs       estado y resultado de partida desde el cliente local (LCU)
+src/main.rs      CLI, main loop and logging
+src/config.rs    reading and validating agent.toml
+src/detect.rs    process enumeration and allowlist
+src/report.rs    HTTP sending to the bot
+src/clock.rs     date and time through kernel32, no dependencies
+src/local.rs     curl, lockfile, base64 and diagnostics for the local APIs
+src/valorant.rs  match state from the Riot Client's local presence
+src/lol.rs       match state and result from the local client (LCU)
 ```

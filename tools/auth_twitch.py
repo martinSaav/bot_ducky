@@ -1,11 +1,11 @@
-"""Flujo OAuth de un solo uso para capturar los tokens de Twitch.
+"""One-off OAuth flow to capture the Twitch tokens.
 
-Uso:
-    python tools/auth_twitch.py broadcaster   # lo corre el streamer
-    python tools/auth_twitch.py bot           # cuenta que escribe en el chat
+Usage:
+    python tools/auth_twitch.py broadcaster   # run by the streamer
+    python tools/auth_twitch.py bot           # account that writes in chat
 
-Levanta un servidor local en la redirect URI, abre el navegador, captura
-el ?code= y guarda access + refresh token en data/tokens.json.
+Starts a local server on the redirect URI, opens the browser, captures the
+?code= and stores the access + refresh token in data/tokens.json.
 """
 from __future__ import annotations
 
@@ -48,10 +48,10 @@ def _page(title: str, msg: str, ok: bool = True) -> web.Response:
 async def run(role: str) -> int:
     missing = cfg.missing("twitch_client_id", "twitch_client_secret", "twitch_channel")
     if missing:
-        print(f"[X] Falta configurar en .env: {', '.join(missing)}")
+        print(f"[X] Missing in .env: {', '.join(missing)}")
         return 1
     if role not in twitch_auth.SCOPES:
-        print(f"[X] Rol invalido '{role}'. Usa: {' | '.join(twitch_auth.SCOPES)}")
+        print(f"[X] Invalid role '{role}'. Use: {' | '.join(twitch_auth.SCOPES)}")
         return 1
 
     parsed = urllib.parse.urlparse(cfg.twitch_redirect_uri)
@@ -67,19 +67,19 @@ async def run(role: str) -> int:
         if request.query.get("error"):
             desc = request.query.get("error_description", request.query["error"])
             if not done.done():
-                done.set_exception(RuntimeError(f"Autorizacion rechazada: {desc}"))
-            return _page("Autorizacion cancelada", desc, ok=False)
-        # El state protege contra que un tercero te haga canjear su code.
+                done.set_exception(RuntimeError(f"Authorization rejected: {desc}"))
+            return _page("Authorization cancelled", desc, ok=False)
+        # The state protects against a third party making you exchange their code.
         if request.query.get("state") != state:
-            return _page("State invalido", "La peticion no coincide con esta sesion.", ok=False)
+            return _page("Invalid state", "The request does not match this session.", ok=False)
         code = request.query.get("code")
         if not code:
-            return _page("Falta el code", "Twitch no devolvio un codigo.", ok=False)
+            return _page("Missing code", "Twitch did not return a code.", ok=False)
         if not done.done():
             done.set_result(code)
         return _page(
-            "Listo",
-            "Ya podes cerrar esta pestana y volver a la terminal.",
+            "Done",
+            "You can close this tab and go back to the terminal.",
         )
 
     app = web.Application()
@@ -90,24 +90,24 @@ async def run(role: str) -> int:
     try:
         await site.start()
     except OSError as exc:
-        print(f"[X] No se pudo escuchar en {host}:{port} -> {exc}")
-        print("    Cerra lo que este usando ese puerto o cambia TWITCH_REDIRECT_URI")
-        print("    (acordate de actualizar tambien la OAuth Redirect URL en dev.twitch.tv).")
+        print(f"[X] Could not listen on {host}:{port} -> {exc}")
+        print("    Close whatever is using that port or change TWITCH_REDIRECT_URI")
+        print("    (remember to also update the OAuth Redirect URL at dev.twitch.tv).")
         await runner.cleanup()
         return 1
 
     url = twitch_auth.authorize_url(role, state)
-    print(f"\n=== Autorizacion de Twitch para el rol: {role} ===")
+    print(f"\n=== Twitch authorization for role: {role} ===")
     print(f"Scopes: {', '.join(twitch_auth.SCOPES[role])}")
-    print("\nAbri este link con la cuenta correcta e inicia sesion:\n")
+    print("\nOpen this link with the right account and sign in:\n")
     print(url + "\n")
     webbrowser.open(url)
-    print(f"Esperando el redirect en {cfg.twitch_redirect_uri} ... (Ctrl+C para cancelar)")
+    print(f"Waiting for the redirect at {cfg.twitch_redirect_uri} ... (Ctrl+C to cancel)")
 
     try:
         code = await asyncio.wait_for(done, timeout=300)
     except asyncio.TimeoutError:
-        print("[X] Se agoto el tiempo (5 min) esperando la autorizacion.")
+        print("[X] Timed out (5 min) waiting for the authorization.")
         await runner.cleanup()
         return 1
     except RuntimeError as exc:
@@ -115,7 +115,7 @@ async def run(role: str) -> int:
         await runner.cleanup()
         return 1
     finally:
-        # Damos un instante para que el navegador reciba la respuesta HTML.
+        # Give the browser a moment to receive the HTML response.
         await asyncio.sleep(0.5)
 
     try:
@@ -124,29 +124,30 @@ async def run(role: str) -> int:
             info = await twitch_auth.validate(session, tokens["access_token"])
     except twitch_auth.TwitchAuthError as exc:
         print(f"\n[X] {exc}")
-        print("    Revisa que en dev.twitch.tv coincidan exactamente:")
-        print("      - Client ID y Client Secret con los del .env")
-        print(f"      - la OAuth Redirect URL con {cfg.twitch_redirect_uri}")
+        print("    Check that these match exactly at dev.twitch.tv:")
+        print("      - Client ID and Client Secret, with the ones in .env")
+        print(f"      - the OAuth Redirect URL, with {cfg.twitch_redirect_uri}")
         await runner.cleanup()
         return 1
 
     login = info.get("login", "")
     expected = cfg.twitch_channel if role == "broadcaster" else cfg.bot_login
-    forzar = "--force" in sys.argv
+    force = "--force" in sys.argv
 
-    if expected and login.lower() != expected.lower() and not forzar:
-        # No guardamos: pisar un token correcto con uno de otra cuenta deja el
-        # bot apuntando al canal equivocado, y eso no se nota hasta que actua.
-        print(f"\n[X] Autorizaste con '{login}' pero para el rol '{role}' se esperaba "
+    if expected and login.lower() != expected.lower() and not force:
+        # Nothing is saved: overwriting a good token with another account's
+        # leaves the bot pointing at the wrong channel, and that goes unnoticed
+        # until it acts.
+        print(f"\n[X] You authorized as '{login}' but role '{role}' expects "
               f"'{expected}'.")
-        print("    NO se guardo nada, tu token anterior sigue intacto.")
+        print("    NOTHING was saved; your previous token is untouched.")
         print()
-        print("    Para autorizar con la cuenta correcta:")
-        print("      1. Abri una ventana privada del navegador, o cerra sesion en twitch.tv")
-        print(f"      2. Volve a correr:  python tools/auth_twitch.py {role}")
-        print(f"      3. Inicia sesion como '{expected}'")
+        print("    To authorize with the right account:")
+        print("      1. Open a private browser window, or sign out of twitch.tv")
+        print(f"      2. Run again:  python tools/auth_twitch.py {role}")
+        print(f"      3. Sign in as '{expected}'")
         print()
-        print("    Si de verdad querias esta cuenta:  --force")
+        print("    If you really meant this account:  --force")
         await runner.cleanup()
         return 1
 
@@ -165,12 +166,12 @@ async def run(role: str) -> int:
     )
     await runner.cleanup()
 
-    print(f"\n[OK] Token guardado en {cfg.token_file}")
-    print(f"     Cuenta: {login}  (user_id {info.get('user_id')})")
+    print(f"\n[OK] Token saved to {cfg.token_file}")
+    print(f"     Account: {login}  (user_id {info.get('user_id')})")
     print(f"     Scopes: {', '.join(info.get('scopes', []))}")
 
-    if forzar and expected and login.lower() != expected.lower():
-        print(f"\n[!] Guardado con --force pese a que se esperaba '{expected}'.")
+    if force and expected and login.lower() != expected.lower():
+        print(f"\n[!] Saved with --force even though '{expected}' was expected.")
     return 0
 
 
@@ -179,7 +180,7 @@ def main() -> int:
     try:
         return asyncio.run(run(role))
     except KeyboardInterrupt:
-        print("\nCancelado.")
+        print("\nCancelled.")
         return 130
 
 

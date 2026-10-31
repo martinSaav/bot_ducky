@@ -1,4 +1,4 @@
-"""Cliente de la API Helix de Twitch."""
+"""Client for the Twitch Helix API."""
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +25,7 @@ class HelixError(RuntimeError):
 
 
 def rfc3339(dt: datetime) -> str:
-    """Twitch exige RFC3339 en UTC con sufijo Z."""
+    """Twitch requires RFC3339 in UTC with a Z suffix."""
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -62,7 +62,7 @@ class Helix:
             body = await resp.json(content_type=None)
 
             if status == 401 and _attempt == 0 and role != "app":
-                # El token pudo invalidarse antes de su expiracion nominal.
+                # The token may have been invalidated before its nominal expiry.
                 log.warning("401 on %s, refreshing token for '%s'", path, role)
                 await self.auth.refresh(role)
                 return await self.request(
@@ -99,7 +99,7 @@ class Helix:
             return body
 
     # ------------------------------------------------------------------
-    # usuarios / juegos
+    # users / games
     # ------------------------------------------------------------------
     async def get_user(self, login: str) -> dict[str, Any] | None:
         body = await self.request("GET", "/users", params={"login": login})
@@ -107,20 +107,20 @@ class Helix:
         return data[0] if data else None
 
     async def get_game_by_name(self, name: str) -> dict[str, Any] | None:
-        """Busca la categoria por nombre exacto."""
+        """Looks up the category by exact name."""
         body = await self.request("GET", "/games", params={"name": name})
         data = (body or {}).get("data") or []
         return data[0] if data else None
 
     async def search_categories(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Busqueda difusa: util cuando el nombre de Discord no calza exacto."""
+        """Fuzzy search: useful when the Discord name does not match exactly."""
         body = await self.request(
             "GET", "/search/categories", params={"query": query, "first": limit}
         )
         return (body or {}).get("data") or []
 
     # ------------------------------------------------------------------
-    # canal
+    # channel
     # ------------------------------------------------------------------
     async def get_channel(self, broadcaster_id: str) -> dict[str, Any] | None:
         body = await self.request(
@@ -137,7 +137,7 @@ class Helix:
         title: str | None = None,
         tags: list[str] | None = None,
     ) -> None:
-        """PATCH /helix/channels - requiere scope channel:manage:broadcast."""
+        """PATCH /helix/channels - requires the channel:manage:broadcast scope."""
         payload: dict[str, Any] = {}
         if game_id is not None:
             payload["game_id"] = str(game_id)
@@ -155,13 +155,13 @@ class Helix:
         )
 
     async def get_stream(self, user_login: str) -> dict[str, Any] | None:
-        """Devuelve el stream si esta en vivo, None si esta offline."""
+        """Returns the stream if it is live, None if it is offline."""
         body = await self.request("GET", "/streams", params={"user_login": user_login})
         data = (body or {}).get("data") or []
         return data[0] if data else None
 
     # ------------------------------------------------------------------
-    # predicciones
+    # predictions
     # ------------------------------------------------------------------
     async def get_predictions(self, broadcaster_id: str) -> list[dict[str, Any]]:
         body = await self.request(
@@ -198,7 +198,7 @@ class Helix:
         prediction_id: str,
         winning_outcome_id: str,
     ) -> None:
-        """Resuelve una prediction con el outcome ganador."""
+        """Resolves a prediction with the winning outcome."""
         await self.request(
             "PATCH", "/predictions",
             params={
@@ -231,7 +231,7 @@ class Helix:
         ended_at: datetime | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Pagina /helix/clips hasta juntar `limit` clips del rango pedido."""
+        """Pages through /helix/clips until it collects `limit` clips in the range."""
         params: dict[str, Any] = {"broadcaster_id": broadcaster_id, "first": 100}
         if started_at:
             params["started_at"] = rfc3339(started_at)
@@ -253,7 +253,7 @@ class Helix:
         return out[:limit]
 
     async def create_clip(self, broadcaster_id: str) -> dict[str, Any] | None:
-        """POST /helix/clips - requiere clips:edit y el canal en vivo."""
+        """POST /helix/clips - requires clips:edit and the channel to be live."""
         body = await self.request(
             "POST", "/clips",
             params={"broadcaster_id": broadcaster_id},

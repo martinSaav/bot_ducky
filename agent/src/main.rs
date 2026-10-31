@@ -1,8 +1,8 @@
-//! Agente que corre en la PC del streamer.
+//! Agent that runs on the streamer's PC.
 //!
-//! Cada pocos segundos mira si hay algun juego de la lista blanca corriendo y
-//! se lo avisa al bot. No toca Twitch, no guarda credenciales de nadie y no
-//! reporta ningun proceso que no este declarado en agent.toml.
+//! Every few seconds it checks whether a game from the allowlist is running
+//! and tells the bot. It does not touch Twitch, stores nobody's credentials,
+//! and reports no process that is not declared in agent.toml.
 
 mod clock;
 mod config;
@@ -37,7 +37,7 @@ fn main() {
         None => base.join("agent.toml"),
     };
 
-    // --scan no necesita config: sirve justamente para armarla.
+    // --scan needs no config: its whole point is to help write one.
     if args.iter().any(|a| a == "--scan") {
         scan();
         return;
@@ -54,8 +54,8 @@ fn main() {
     let mut detector = Detector::new(&cfg.games);
 
     if args.iter().any(|a| a == "--once") {
-        // Muestra tambien lo que dice la API local del cliente: es lo primero
-        // que hay que mirar cuando una prediction no se crea.
+        // Also shows what the client's local API says: the first thing to
+        // check when a prediction is not created.
         let detected = detector.detect();
         for line in detector.take_diagnostics() {
             println!("  {line}");
@@ -105,13 +105,13 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
         }
 
         let changed = !ever_sent || current != last_reported;
-        // El score de Valorant cambia ronda a ronda: eso se manda, pero el
-        // "Detected" solo se registra cuando cambia el juego o la partida.
+        // The Valorant score changes every round: that is sent, but
+        // "Detected" is only logged when the game or the match changes.
         let identity_changed = !ever_sent || identity(&current) != identity(&last_reported);
         let heartbeat_due = last_send.elapsed() >= heartbeat;
 
-        // Un envio fallido deja `ever_sent` en false, asi el proximo tick
-        // reintenta sin necesidad de una cola aparte.
+        // A failed send leaves `ever_sent` false, so the next tick retries
+        // without needing a separate queue.
         if changed || heartbeat_due {
                 match reporter.send(current.as_ref(), log.pending()) {
                 Ok(()) => {
@@ -136,8 +136,8 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
                     last_send = Instant::now();
                 }
                 Err(e) => {
-                    // Sin esto un bot apagado llenaria el log con una linea
-                    // igual cada 5 segundos.
+                    // Without this, a bot that is down would fill the log with
+                    // the same line every 5 seconds.
                     if failures < 3 || failures % 60 == 0 {
                         log.warning(&e);
                     }
@@ -152,7 +152,7 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
     }
 }
 
-/// Lo que identifica un reporte para el log: juego, ejecutable y partida.
+/// What identifies a report for the log: game, executable and match.
 fn identity(d: &Option<Detected>) -> Option<(&str, &str, Option<&str>)> {
     d.as_ref().map(|d| (d.game.as_str(), d.exe.as_str(), d.match_id.as_deref()))
 }
@@ -196,8 +196,8 @@ fn exe_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Log a archivo y a consola. Si el archivo no se puede abrir seguimos igual:
-/// no poder loguear no es motivo para que el agente deje de funcionar.
+/// Logs to a file and to the console. If the file cannot be opened we carry
+/// on: failing to log is no reason for the agent to stop working.
 struct Logger<'a> {
     path: PathBuf,
     reporter: &'a Reporter,

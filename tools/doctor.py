@@ -1,4 +1,4 @@
-"""Diagnostico: revisa que cada pieza este bien configurada antes de arrancar.
+"""Diagnostics: checks that every piece is configured correctly before starting.
 
     python tools/doctor.py
 """
@@ -34,79 +34,79 @@ def header(title: str) -> None:
 async def check_twitch(session: aiohttp.ClientSession) -> None:
     header("Twitch")
     if not cfg.twitch_client_id or not cfg.twitch_client_secret:
-        line(BAD, "Falta TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET en .env")
+        line(BAD, "TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET missing in .env")
         return
-    line(OK, f"App configurada (client_id ...{cfg.twitch_client_id[-6:]})")
+    line(OK, f"App configured (client_id ...{cfg.twitch_client_id[-6:]})")
 
     store = JsonStore(cfg.token_file)
     auth = twitch_auth.TwitchAuth(session, store)
 
     try:
         await auth.app_bearer()
-        line(OK, "App access token: se obtiene bien")
+        line(OK, "App access token: obtained fine")
     except Exception as exc:  # noqa: BLE001
-        line(BAD, f"App access token fallo: {exc}")
+        line(BAD, f"App access token failed: {exc}")
         return
 
     for role, needed in twitch_auth.SCOPES.items():
         entry = store.get(role) or {}
         if not entry.get("refresh_token"):
             level = BAD if role == "broadcaster" else WARN
-            line(level, f"Rol '{role}' sin autorizar -> python tools/auth_twitch.py {role}")
+            line(level, f"Role '{role}' not authorized -> python tools/auth_twitch.py {role}")
             continue
         try:
             token = await auth.bearer(role)
             info = await twitch_auth.validate(session, token)
         except Exception as exc:  # noqa: BLE001
-            line(BAD, f"Rol '{role}': token invalido ({exc})")
+            line(BAD, f"Role '{role}': invalid token ({exc})")
             continue
         scopes = set(info.get("scopes") or [])
-        faltan = [s for s in needed if s not in scopes]
-        if faltan:
-            line(BAD, f"Rol '{role}' ({info.get('login')}): faltan scopes {faltan} "
-                      f"-> reautorizar")
+        missing = [s for s in needed if s not in scopes]
+        if missing:
+            line(BAD, f"Role '{role}' ({info.get('login')}): missing scopes {missing} "
+                      f"-> authorize again")
         else:
-            line(OK, f"Rol '{role}': {info.get('login')} (id {info.get('user_id')}), scopes OK")
+            line(OK, f"Role '{role}': {info.get('login')} (id {info.get('user_id')}), scopes OK")
 
         expected = cfg.twitch_channel if role == "broadcaster" else cfg.bot_login
         if expected and str(info.get("login", "")).lower() != expected.lower():
-            line(WARN, f"Rol '{role}' autorizado como '{info.get('login')}' "
-                       f"pero se esperaba '{expected}'")
+            line(WARN, f"Role '{role}' authorized as '{info.get('login')}' "
+                       f"but '{expected}' was expected")
 
 
 async def check_discord() -> None:
-    header("Discord (auto-categorizador)")
+    header("Discord (auto-categorizer)")
     if not cfg.discord_token:
-        line(WARN, "DISCORD_BOT_TOKEN vacio: el auto-categorizador no arranca")
+        line(WARN, "DISCORD_BOT_TOKEN empty: the auto-categorizer will not start")
         return
     if not cfg.discord_streamer_id:
-        line(BAD, "DISCORD_STREAMER_ID vacio o no numerico: el bot no sabe a quien mirar")
+        line(BAD, "DISCORD_STREAMER_ID empty or not numeric: the bot does not know who to watch")
         return
-    # Los IDs de Discord son snowflakes de 17-20 digitos. Un numero corto suele
-    # ser el discriminador viejo (#8553), que no identifica a nadie.
-    digitos = len(str(cfg.discord_streamer_id))
-    if not 17 <= digitos <= 20:
-        line(BAD, f"DISCORD_STREAMER_ID tiene {digitos} digitos y deberia tener 17-20. "
-                  "Eso no es un ID de usuario: activa el Modo desarrollador y usa "
-                  "click derecho sobre ella > Copiar ID de usuario.")
+    # Discord IDs are 17-20 digit snowflakes. A short number is usually the old
+    # discriminator (#8553), which identifies nobody.
+    digits = len(str(cfg.discord_streamer_id))
+    if not 17 <= digits <= 20:
+        line(BAD, f"DISCORD_STREAMER_ID has {digits} digits and should have 17-20. "
+                  "That is not a user ID: enable Developer Mode and use "
+                  "right click on her > Copy User ID.")
         return
     try:
         import discord  # noqa: F401
     except ImportError:
-        line(BAD, "discord.py no instalado -> pip install -r requirements.txt")
+        line(BAD, "discord.py not installed -> pip install -r requirements.txt")
         return
     if not cfg.game_map_file.exists():
-        line(WARN, f"No existe {cfg.game_map_file}; se usara solo la busqueda automatica")
+        line(WARN, f"{cfg.game_map_file} does not exist; only the automatic search will be used")
     else:
-        line(OK, "config/game_map.json presente")
+        line(OK, "config/game_map.json present")
 
-    # Conectamos de verdad: es la unica forma de saber si los intents
-    # privilegiados estan habilitados, si el bot comparte servidor con el
-    # streamer y si su presencia se ve. Discord no lo expone por API.
-    await _discord_en_vivo()
+    # Connect for real: it is the only way to know whether the privileged
+    # intents are enabled, whether the bot shares a server with the streamer
+    # and whether her presence is visible. Discord does not expose it via API.
+    await _check_discord_live()
 
 
-async def _discord_en_vivo() -> None:
+async def _check_discord_live() -> None:
     import discord
 
     intents = discord.Intents.none()
@@ -115,174 +115,174 @@ async def _discord_en_vivo() -> None:
     intents.presences = True
 
     client = discord.Client(intents=intents)
-    listo = asyncio.Event()
+    ready = asyncio.Event()
 
     @client.event
     async def on_ready() -> None:  # noqa: ANN202
         try:
-            line(OK, f"Conectado como {client.user} (intents privilegiados habilitados)")
+            line(OK, f"Connected as {client.user} (privileged intents enabled)")
 
-            # fetch_user funciona aunque no compartan servidor: confirma que el
-            # ID existe y de quien es.
+            # fetch_user works even without a shared server: it confirms the
+            # ID exists and whose it is.
             try:
-                usuario = await client.fetch_user(cfg.discord_streamer_id)
-                line(OK, f"El ID corresponde a @{usuario.name}")
+                streamer = await client.fetch_user(cfg.discord_streamer_id)
+                line(OK, f"The ID belongs to @{streamer.name}")
             except discord.NotFound:
-                line(BAD, f"No existe ningun usuario de Discord con el ID "
+                line(BAD, f"No Discord user exists with the ID "
                           f"{cfg.discord_streamer_id}")
                 return
 
             if not client.guilds:
-                line(BAD, "El bot no esta en ningun servidor. Invitalo con:\n"
+                line(BAD, "The bot is not in any server. Invite it with:\n"
                           f"       https://discord.com/oauth2/authorize"
                           f"?client_id={client.user.id}&permissions=0&scope=bot")
                 return
-            line(OK, f"En {len(client.guilds)} servidor(es): "
+            line(OK, f"In {len(client.guilds)} server(s): "
                      f"{', '.join(g.name for g in client.guilds)}")
 
-            miembro = None
+            member = None
             for guild in client.guilds:
-                miembro = guild.get_member(cfg.discord_streamer_id)
-                if miembro is not None:
+                member = guild.get_member(cfg.discord_streamer_id)
+                if member is not None:
                     break
 
-            if miembro is None:
-                line(BAD, f"@{usuario.name} no aparece en ningun servidor del bot. "
-                          "Tiene que estar en el mismo servidor para que se lea su "
-                          "presencia.")
+            if member is None:
+                line(BAD, f"@{streamer.name} is not in any of the bot's servers. "
+                          "She has to be in the same server for her presence "
+                          "to be read.")
                 return
 
-            line(OK, f"Comparte el servidor '{miembro.guild.name}'")
+            line(OK, f"Shares the server '{member.guild.name}'")
 
             from src.discord_presence.bot import playing_name
 
-            jugando = playing_name(miembro)
-            if jugando:
-                line(OK, f"Ahora mismo la veo jugando a: {jugando}")
-            elif str(miembro.status) == "offline":
-                line(WARN, "Aparece desconectada de Discord: sin presencia que leer. "
-                           "Volve a probar cuando este online.")
+            playing = playing_name(member)
+            if playing:
+                line(OK, f"Right now I see her playing: {playing}")
+            elif str(member.status) == "offline":
+                line(WARN, "She shows as offline on Discord: no presence to read. "
+                           "Try again when she is online.")
             else:
-                line(OK, "Presencia visible, sin juego abierto en este momento")
+                line(OK, "Presence visible, no game open right now")
         finally:
-            listo.set()
+            ready.set()
             await client.close()
 
     try:
         await asyncio.wait_for(client.start(cfg.discord_token), timeout=30)
     except discord.PrivilegedIntentsRequired:
-        line(BAD, "Faltan los intents privilegiados. En "
-                  "discord.com/developers > tu app > Bot > "
-                  "Privileged Gateway Intents, activa PRESENCE INTENT y "
+        line(BAD, "The privileged intents are missing. In "
+                  "discord.com/developers > your app > Bot > "
+                  "Privileged Gateway Intents, enable PRESENCE INTENT and "
                   "SERVER MEMBERS INTENT.")
     except discord.LoginFailure:
-        line(BAD, "DISCORD_BOT_TOKEN invalido. Sacalo de dev portal > Bot > Reset Token.")
+        line(BAD, "Invalid DISCORD_BOT_TOKEN. Get it from dev portal > Bot > Reset Token.")
     except asyncio.TimeoutError:
-        if not listo.is_set():
-            line(BAD, "Discord no respondio en 30 s")
+        if not ready.is_set():
+            line(BAD, "Discord did not answer within 30 s")
     except Exception as exc:  # noqa: BLE001
-        line(BAD, f"Fallo conectando a Discord: {exc}")
+        line(BAD, f"Failed to connect to Discord: {exc}")
     finally:
         if not client.is_closed():
             await client.close()
 
 
 async def check_agent() -> None:
-    header("Agente de escritorio")
+    header("Desktop agent")
     if not cfg.agent_token:
-        line(WARN, "AGENT_TOKEN vacio: el endpoint del agente no se levanta "
-                   "(la categoria queda solo con Discord)")
+        line(WARN, "AGENT_TOKEN empty: the agent endpoint will not start "
+                   "(the category comes from Discord only)")
         return
     if len(cfg.agent_token) < 16:
-        line(BAD, "AGENT_TOKEN demasiado corto. Genera uno con: "
+        line(BAD, "AGENT_TOKEN too short. Generate one with: "
                   'python -c "import secrets; print(secrets.token_urlsafe(32))"')
         return
-    line(OK, f"Endpoint en http://{cfg.agent_host}:{cfg.agent_port}/game")
+    line(OK, f"Endpoint at http://{cfg.agent_host}:{cfg.agent_port}/game")
 
-    # Un puerto ya ocupado se descubre recien al arrancar, cuando ya es tarde.
+    # A port already in use is only discovered on startup, when it is too late.
     import socket
 
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         probe.bind(("" if cfg.agent_host == "0.0.0.0" else cfg.agent_host, cfg.agent_port))
-        line(OK, f"El puerto {cfg.agent_port} esta libre")
+        line(OK, f"Port {cfg.agent_port} is free")
     except OSError as exc:
-        line(BAD, f"No puedo escuchar en {cfg.agent_host}:{cfg.agent_port} -> {exc}")
+        line(BAD, f"Cannot listen on {cfg.agent_host}:{cfg.agent_port} -> {exc}")
     finally:
         probe.close()
 
     agent_toml = cfg.root / "agent" / "agent.toml"
     if agent_toml.exists():
-        contenido = agent_toml.read_text(encoding="utf-8", errors="replace")
-        if cfg.agent_token in contenido:
-            line(OK, "agent/agent.toml usa el mismo token")
+        content = agent_toml.read_text(encoding="utf-8", errors="replace")
+        if cfg.agent_token in content:
+            line(OK, "agent/agent.toml uses the same token")
         else:
-            line(WARN, "agent/agent.toml tiene un token distinto al del .env "
-                       "(puede ser normal si esa copia es solo tuya)")
+            line(WARN, "agent/agent.toml has a different token than .env "
+                       "(may be fine if that copy is only yours)")
     else:
-        line(WARN, "No hay agent/agent.toml local (se copia a la PC del streamer)")
+        line(WARN, "No local agent/agent.toml (it is copied to the streamer's PC)")
 
 
 async def check_riot(session: aiohttp.ClientSession) -> None:
     header("Riot / League of Legends")
     if not cfg.riot_api_key:
-        line(WARN, "RIOT_API_KEY vacio: !rank y !partida quedan desactivados")
+        line(WARN, "RIOT_API_KEY empty: !rank and !partida are disabled")
         return
     if not cfg.riot_id or "#" not in cfg.riot_id:
-        line(BAD, "RIOT_ID vacio o mal formado (debe ser Nombre#TAG)")
+        line(BAD, "RIOT_ID empty or malformed (must be Name#TAG)")
         return
     name, _, tag = cfg.riot_id.rpartition("#")
     url = (f"https://{cfg.riot_region}.api.riotgames.com"
            f"/riot/account/v1/accounts/by-riot-id/{name}/{tag}")
     async with session.get(url, headers={"X-Riot-Token": cfg.riot_api_key}) as resp:
         if resp.status == 200:
-            line(OK, f"{cfg.riot_id} resuelto en la region {cfg.riot_region}")
+            line(OK, f"{cfg.riot_id} resolved in region {cfg.riot_region}")
         elif resp.status in (401, 403):
-            line(BAD, "API key rechazada. Las keys de desarrollo vencen cada 24 h.")
+            line(BAD, "API key rejected. Development keys expire every 24 h.")
         elif resp.status == 404:
-            line(BAD, f"No existe {cfg.riot_id} en la region '{cfg.riot_region}'")
+            line(BAD, f"{cfg.riot_id} does not exist in region '{cfg.riot_region}'")
         else:
-            line(WARN, f"Riot respondio HTTP {resp.status}")
+            line(WARN, f"Riot answered HTTP {resp.status}")
 
 
 async def check_valorant(session: aiohttp.ClientSession) -> None:
     header("Valorant (HenrikDev)")
     if not cfg.henrik_api_key:
-        line(WARN, "HENRIK_API_KEY vacio: !valorant queda desactivado")
+        line(WARN, "HENRIK_API_KEY empty: !valorant is disabled")
         return
     if not cfg.valorant_id or "#" not in cfg.valorant_id:
-        line(BAD, "VALORANT_ID vacio o mal formado (debe ser Nombre#TAG)")
+        line(BAD, "VALORANT_ID empty or malformed (must be Name#TAG)")
         return
     name, _, tag = cfg.valorant_id.rpartition("#")
     url = f"https://api.henrikdev.xyz/valorant/v3/mmr/{cfg.valorant_region}/pc/{name}/{tag}"
     async with session.get(url, headers={"Authorization": cfg.henrik_api_key}) as resp:
         if resp.status == 200:
-            line(OK, f"{cfg.valorant_id} resuelto en {cfg.valorant_region}")
+            line(OK, f"{cfg.valorant_id} resolved in {cfg.valorant_region}")
         elif resp.status in (401, 403):
-            line(BAD, "Key de HenrikDev rechazada")
+            line(BAD, "HenrikDev key rejected")
         elif resp.status == 404:
-            line(WARN, f"HenrikDev no encontro {cfg.valorant_id} en '{cfg.valorant_region}'")
+            line(WARN, f"HenrikDev did not find {cfg.valorant_id} in '{cfg.valorant_region}'")
         else:
-            line(WARN, f"HenrikDev respondio HTTP {resp.status}")
+            line(WARN, f"HenrikDev answered HTTP {resp.status}")
 
 
 async def check_clips(session: aiohttp.ClientSession) -> None:
-    header("Pipeline de clips")
+    header("Clips pipeline")
     if not cfg.clips_enabled:
         line(WARN, "CLIPS_ENABLED=false")
     try:
         import yt_dlp
         line(OK, f"yt-dlp {yt_dlp.version.__version__}")
     except ImportError:
-        line(BAD, "yt-dlp no instalado -> pip install -r requirements.txt")
+        line(BAD, "yt-dlp not installed -> pip install -r requirements.txt")
 
     if not cfg.sa_path.exists():
-        line(BAD, f"No existe el JSON de service account en {cfg.sa_path}")
+        line(BAD, f"No service account JSON at {cfg.sa_path}")
         return
-    line(OK, f"Service account en {cfg.sa_path}")
+    line(OK, f"Service account at {cfg.sa_path}")
     if not cfg.gdrive_folder_id:
-        line(BAD, "GDRIVE_FOLDER_ID vacio")
+        line(BAD, "GDRIVE_FOLDER_ID empty")
         return
 
     from src.drive import DriveUploader
@@ -291,7 +291,7 @@ async def check_clips(session: aiohttp.ClientSession) -> None:
     try:
         token = await drive.token()
     except Exception as exc:  # noqa: BLE001
-        line(BAD, f"No se pudo firmar el token de Google: {exc}")
+        line(BAD, f"Could not sign the Google token: {exc}")
         return
     url = f"https://www.googleapis.com/drive/v3/files/{cfg.gdrive_folder_id}"
     params = {"fields": "id,name,driveId,mimeType", "supportsAllDrives": "true"}
@@ -300,24 +300,24 @@ async def check_clips(session: aiohttp.ClientSession) -> None:
     ) as resp:
         body = await resp.json(content_type=None)
         if resp.status == 200:
-            line(OK, f"Carpeta destino: {body.get('name')}")
+            line(OK, f"Destination folder: {body.get('name')}")
             if body.get("driveId"):
-                line(OK, "Esta en una Unidad compartida (correcto)")
+                line(OK, "It is in a Shared Drive (correct)")
             else:
-                line(WARN, "La carpeta esta en 'Mi unidad'. Las service accounts no "
-                           "tienen cuota ahi y la subida va a fallar con "
-                           "storageQuotaExceeded. Mové la carpeta a una Unidad compartida.")
+                line(WARN, "The folder is in 'My Drive'. Service accounts have no "
+                           "quota there and the upload will fail with "
+                           "storageQuotaExceeded. Move the folder to a Shared Drive.")
         elif resp.status == 404:
-            line(BAD, "La carpeta no existe o no esta compartida con la service account. "
-                      f"Compartila con el client_email del JSON.")
+            line(BAD, "The folder does not exist or is not shared with the service account. "
+                      f"Share it with the client_email in the JSON.")
         else:
-            line(BAD, f"Drive respondio HTTP {resp.status}: {body}")
+            line(BAD, f"Drive answered HTTP {resp.status}: {body}")
 
 
 async def main() -> int:
-    print(f"Diagnostico del bot de {cfg.twitch_channel or '???'}")
+    print(f"Diagnostics for {cfg.twitch_channel or '???'}'s bot")
     if not (cfg.root / ".env").exists():
-        print("\n[X] No existe .env. Copia .env.example a .env y completalo.")
+        print("\n[X] There is no .env. Copy .env.example to .env and fill it in.")
         return 1
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
         await check_twitch(session)
@@ -328,9 +328,9 @@ async def main() -> int:
         await check_clips(session)
     print(f"\n{'=' * 40}")
     if _fails:
-        print(f"{_fails} problema(s) bloqueante(s). Revisa las lineas con [X].")
+        print(f"{_fails} blocking problem(s). Check the lines marked [X].")
         return 1
-    print("Todo listo para arrancar:  python run.py")
+    print("All set to start:  python run.py")
     return 0
 
 

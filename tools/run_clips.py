@@ -1,7 +1,7 @@
-"""Corre el pipeline de clips una sola vez, sin esperar al horario.
+"""Runs the clips pipeline once, without waiting for the schedule.
 
     python tools/run_clips.py
-    python tools/run_clips.py --horas 72 --max 5
+    python tools/run_clips.py --hours 72 --max 5
 """
 from __future__ import annotations
 
@@ -29,8 +29,8 @@ from src.twitch.helix import Helix  # noqa: E402
 
 async def run(args: argparse.Namespace) -> int:
     logging_setup.setup()
-    if args.horas:
-        cfg.clips_lookback_hours = args.horas
+    if args.hours:
+        cfg.clips_lookback_hours = args.hours
     if args.max:
         cfg.clips_max = args.max
 
@@ -45,7 +45,7 @@ async def run(args: argparse.Namespace) -> int:
         if not broadcaster_id:
             user = await helix.get_user(cfg.twitch_channel)
             if not user:
-                print(f"[X] No existe el canal '{cfg.twitch_channel}'")
+                print(f"[X] Channel '{cfg.twitch_channel}' does not exist")
                 return 1
             broadcaster_id = user["id"]
 
@@ -57,27 +57,27 @@ async def run(args: argparse.Namespace) -> int:
         )
         pipeline = ClipPipeline(svc, DriveUploader(session))
 
-        if args.listar:
+        if args.list:
             clips = await pipeline.select_clips()
             if not clips:
-                print("No hay clips nuevos en la ventana pedida.")
+                print("No new clips in the requested window.")
                 return 0
-            print(f"\n{len(clips)} clips candidatos:\n")
+            print(f"\n{len(clips)} candidate clips:\n")
             for c in clips:
-                print(f"  {c.get('view_count'):>5} vistas  {c.get('created_at')}  {c.get('title')}")
+                print(f"  {c.get('view_count'):>5} views  {c.get('created_at')}  {c.get('title')}")
             return 0
 
         summary = await pipeline.run_once()
-        print(f"\nResultado: {summary}")
-        return 0 if summary.get("fallidos", 0) == 0 else 2
+        print(f"\nResult: {summary}")
+        return 0 if summary.get("failed", 0) == 0 else 2
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Corrida manual del pipeline de clips")
-    parser.add_argument("--horas", type=int, help="ventana hacia atras (default: .env)")
-    parser.add_argument("--max", type=int, help="maximo de clips a subir")
-    parser.add_argument("--listar", action="store_true",
-                        help="solo mostrar los candidatos, sin descargar ni subir")
+    parser = argparse.ArgumentParser(description="Manual run of the clips pipeline")
+    parser.add_argument("--hours", type=int, help="look-back window in hours (default: .env)")
+    parser.add_argument("--max", type=int, help="maximum number of clips to upload")
+    parser.add_argument("--list", action="store_true",
+                        help="only list the candidates, without downloading or uploading")
     try:
         return asyncio.run(run(parser.parse_args()))
     except KeyboardInterrupt:

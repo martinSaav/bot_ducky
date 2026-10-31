@@ -1,14 +1,15 @@
-"""Endpoint HTTP que recibe los reportes del agente de Rust.
+"""HTTP endpoint that receives the Rust agent's reports.
 
-El agente manda el estado absoluto ("juega X" / "no juega nada") cada vez que
-cambia y como latido cada minuto. Acá solo se valida y se pasa al árbitro.
+The agent sends the absolute state ("playing X" / "playing nothing") whenever
+it changes, and as a heartbeat every minute. This module only validates it and
+hands it to the arbiter.
 
-Además expone:
-  GET  /api/status       — snapshot JSON del estado del bot
-  GET  /api/logs         — últimas N líneas de logs/bot.log
-  GET  /ws               — WebSocket para eventos en tiempo real
-  GET  /dashboard/{tail} — sirve el build de Angular (producción)
-  GET  /health           — para diagnóstico del agente
+It also exposes:
+  GET  /api/status       — JSON snapshot of the bot state
+  GET  /api/logs         — last N lines of logs/bot.log
+  GET  /ws               — WebSocket for real-time events
+  GET  /dashboard/{tail} — serves the Angular build (production)
+  GET  /health           — for diagnosing the agent
 """
 from __future__ import annotations
 
@@ -29,18 +30,18 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("agent")
 
-#: Un reporte legítimo son ~200 bytes. Cortamos mucho antes de que un cuerpo
-#: gigante nos haga trabajar de gusto.
+#: A legitimate report is ~200 bytes. We cut off long before a huge body
+#: makes us do pointless work.
 MAX_BODY = 65536
 
-#: Si el agente no aparece en este tiempo lo damos por caído y el árbitro
-#: vuelve a la presencia de Discord. Son 3 latidos de margen.
+#: If the agent does not show up within this time it is considered down and
+#: the arbiter falls back to Discord presence. That is 3 heartbeats of margin.
 STALE_AFTER = 210.0
 
-# Directorio donde Angular deposita su build de producción.
+# Directory where Angular puts its production build.
 _DIST_DIR = Path(__file__).resolve().parent.parent / "dashboard" / "dist" / "dashboard" / "browser"
 
-# CORS origins permitidos (Angular dev server + producción local).
+# Allowed CORS origins (Angular dev server + local production).
 _CORS_ORIGINS = {"http://localhost:4200", "http://127.0.0.1:4200"}
 
 
@@ -73,41 +74,41 @@ class AgentServer:
         prefix = "Bearer "
         if not header.startswith(prefix):
             return False
-        # Comparación en tiempo constante: no filtramos el token por timing.
+        # Constant-time comparison: the token does not leak through timing.
         return hmac.compare_digest(header[len(prefix):], cfg.agent_token)
 
     async def handle_game(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
             log.warning("Rejected report from %s: invalid token", request.remote)
-            return web.json_response({"error": "token invalido"}, status=401)
+            return web.json_response({"error": "invalid token"}, status=401)
 
         if request.content_length and request.content_length > MAX_BODY:
-            return web.json_response({"error": "cuerpo demasiado grande"}, status=413)
+            return web.json_response({"error": "body too large"}, status=413)
 
         try:
             data: Any = await request.json()
         except Exception:  # noqa: BLE001
-            return web.json_response({"error": "json invalido"}, status=400)
+            return web.json_response({"error": "invalid json"}, status=400)
 
         if not isinstance(data, dict):
-            return web.json_response({"error": "se esperaba un objeto"}, status=400)
+            return web.json_response({"error": "expected an object"}, status=400)
 
         game = data.get("game")
         if game is not None:
             if not isinstance(game, str):
-                return web.json_response({"error": "'game' debe ser texto o null"}, status=400)
+                return web.json_response({"error": "'game' must be a string or null"}, status=400)
             game = game.strip()[:100] or None
 
         match_id = data.get("match_id")
         if match_id is not None:
             if not isinstance(match_id, str):
-                return web.json_response({"error": "'match_id' debe ser texto o null"}, status=400)
+                return web.json_response({"error": "'match_id' must be a string or null"}, status=400)
             match_id = match_id.strip()[:200] or None
 
         metadata = data.get("metadata")
         if metadata is not None:
             if not isinstance(metadata, dict):
-                return web.json_response({"error": "'metadata' debe ser un objeto o null"}, status=400)
+                return web.json_response({"error": "'metadata' must be an object or null"}, status=400)
 
         host = data.get("host")
         if isinstance(host, str) and host != self._last_host:
@@ -136,16 +137,16 @@ class AgentServer:
 
     async def handle_agent_logs(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
-            return web.json_response({"error": "token invalido"}, status=401)
+            return web.json_response({"error": "invalid token"}, status=401)
 
         try:
             data: Any = await request.json()
         except Exception:  # noqa: BLE001
-            return web.json_response({"error": "json invalido"}, status=400)
+            return web.json_response({"error": "invalid json"}, status=400)
 
         logs = data.get("logs") if isinstance(data, dict) else None
         if not isinstance(logs, list):
-            return web.json_response({"error": "'logs' debe ser una lista"}, status=400)
+            return web.json_response({"error": "'logs' must be a list"}, status=400)
 
         clean_logs = [line[:1000] for line in logs if isinstance(line, str)]
         if clean_logs:
@@ -156,12 +157,12 @@ class AgentServer:
                     file.write("\n".join(clean_logs) + "\n")
             except OSError:
                 log.exception("Could not persist agent logs")
-                return web.json_response({"error": "no se pudieron guardar los logs"}, status=500)
+                return web.json_response({"error": "could not save the logs"}, status=500)
 
         return web.Response(status=204)
 
     async def handle_health(self, request: web.Request) -> web.Response:
-        """Para probar con el navegador que el puerto se ve desde la otra PC."""
+        """For checking from a browser that the port is reachable from the other PC."""
         return web.json_response({"ok": True, "channel": cfg.twitch_channel})
 
     # ------------------------------------------------------------------
@@ -169,7 +170,7 @@ class AgentServer:
     # ------------------------------------------------------------------
 
     async def handle_status(self, request: web.Request) -> web.Response:
-        """Snapshot JSON del estado completo del bot."""
+        """JSON snapshot of the full bot state."""
         headers = _cors_headers(request)
         if self.status_provider is None:
             return web.json_response({"error": "status not available"}, status=503, headers=headers)
@@ -181,7 +182,7 @@ class AgentServer:
         return web.json_response(snapshot, headers=headers)
 
     async def handle_logs(self, request: web.Request) -> web.Response:
-        """Últimas N líneas del log seleccionado (tail)."""
+        """Last N lines of the selected log (tail)."""
         headers = _cors_headers(request)
         try:
             n = min(int(request.rel_url.query.get("n", "100")), 500)
@@ -192,11 +193,11 @@ class AgentServer:
         lines: list[str] = []
         if log_file.exists():
             try:
-                # Tail eficiente: leemos solo el final del archivo.
+                # Efficient tail: only the end of the file is read.
                 with open(log_file, "rb") as f:
                     f.seek(0, os.SEEK_END)
                     size = f.tell()
-                    chunk = min(size, n * 200)  # ~200 bytes por línea estimado
+                    chunk = min(size, n * 200)  # ~200 bytes per line, estimated
                     f.seek(max(0, size - chunk))
                     raw = f.read().decode("utf-8", errors="replace")
                 lines = raw.splitlines()[-n:]
@@ -208,13 +209,13 @@ class AgentServer:
         return web.Response(status=204, headers=_cors_headers(request))
 
     async def handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
-        """WebSocket para eventos en tiempo real (chat, cambios de juego, etc.)."""
+        """WebSocket for real-time events (chat, game changes, etc.)."""
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
 
         if self.status_provider is not None:
             self.status_provider.broadcaster.add(ws)
-            # Enviar snapshot inicial al conectar.
+            # Send the initial snapshot on connect.
             try:
                 snapshot = self.status_provider.snapshot()
                 await ws.send_str(json.dumps({"event": "status", "data": snapshot}))
@@ -231,10 +232,10 @@ class AgentServer:
         return ws
 
     async def handle_dashboard(self, request: web.Request) -> web.Response:
-        """Sirve el build de Angular en producción."""
+        """Serves the Angular build in production."""
         tail = request.match_info.get("tail", "")
-        # Intentar servir el archivo pedido; si no existe, devolver index.html
-        # (client-side routing de Angular).
+        # Try to serve the requested file; if it does not exist, return index.html
+        # (Angular client-side routing).
         if tail and (candidate := _DIST_DIR / tail).exists() and candidate.is_file():
             return web.FileResponse(candidate)
         index = _DIST_DIR / "index.html"
@@ -259,7 +260,7 @@ class AgentServer:
         app.router.add_get("/api/logs", self.handle_logs)
         app.router.add_get("/ws", self.handle_websocket)
         app.router.add_options("/api/{path:.*}", self.handle_cors_preflight)
-        # Serve Angular build (producción)
+        # Serve Angular build (production)
         app.router.add_get("/dashboard", self.handle_dashboard)
         app.router.add_get("/dashboard/{tail:.*}", self.handle_dashboard)
 

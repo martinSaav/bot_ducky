@@ -1,6 +1,6 @@
--- Migración: ajusta chat_embeddings a 768 dimensiones (Gemini text-embedding-004).
--- La tabla original en 001_chat_history.sql usaba VECTOR(1536) (OpenAI).
--- Ejecutar una sola vez contra la base existente.
+-- Migration: adjusts chat_embeddings to 768 dimensions (Gemini text-embedding-004).
+-- The original table in 001_chat_history.sql used VECTOR(1536) (OpenAI).
+-- Run once against the existing database.
 
 ALTER TABLE chat_embeddings DROP COLUMN IF EXISTS embedding;
 ALTER TABLE chat_embeddings ADD COLUMN embedding VECTOR(768) NOT NULL;

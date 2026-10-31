@@ -14,18 +14,18 @@ import { timer } from 'rxjs';
       <mat-card-header>
         <mat-icon mat-card-avatar class="card-icon">terminal</mat-icon>
         <mat-card-title>Logs</mat-card-title>
-        <mat-card-subtitle>Últimas 80 líneas de {{ source() === 'agent' ? 'agent.log' : 'bot.log' }}</mat-card-subtitle>
+        <mat-card-subtitle>Last 80 lines of {{ source() === 'agent' ? 'agent.log' : 'bot.log' }}</mat-card-subtitle>
       </mat-card-header>
       <mat-card-content>
         <div class="log-sources">
-          <button mat-button [class.selected]="source() === 'agent'" (click)="selectSource('agent')">Agente Rust</button>
+          <button mat-button [class.selected]="source() === 'agent'" (click)="selectSource('agent')">Rust agent</button>
           <button mat-button [class.selected]="source() === 'bot'" (click)="selectSource('bot')">Bot</button>
         </div>
         <div class="log-container" #logEl>
           @for (line of lines(); track $index) {
             <div class="log-line" [class]="lineClass(line)">{{ line }}</div>
           } @empty {
-            <p class="empty-log">Sin logs disponibles</p>
+            <p class="empty-log">No logs available</p>
           }
         </div>
       </mat-card-content>

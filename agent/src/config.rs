@@ -1,49 +1,48 @@
-//! Configuracion del agente: se lee de agent.toml, al lado del ejecutable.
+//! Agent configuration, read from agent.toml next to the executable.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// Marcador que trae el archivo de ejemplo. Si sigue ahi, la config no se toco.
-const TOKEN_PLACEHOLDER: &str = "CAMBIAME";
+/// Placeholder shipped in the example file. If it is still there, the config was not edited.
+const TOKEN_PLACEHOLDER: &str = "CHANGEME";
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    /// URL del endpoint del bot, por ejemplo http://100.72.14.3:8787/game
+    /// URL of the bot endpoint, for example http://100.72.14.3:8787/game
     pub endpoint: String,
 
-    /// Secreto compartido con el bot. Viaja en el header Authorization.
+    /// Secret shared with the bot. Sent in the Authorization header.
     pub token: String,
 
-    /// Cada cuanto se miran los procesos.
+    /// How often processes are checked.
     #[serde(default = "default_poll")]
     pub poll_seconds: u64,
 
-    /// Cada cuanto se reenvia el estado aunque no haya cambiado, para que el
-    /// bot sepa que el agente sigue vivo y no se quede con un dato viejo.
+    /// How often the state is re-sent even if it did not change, so the bot
+    /// knows the agent is alive and does not keep a stale value.
     #[serde(default = "default_heartbeat")]
     pub heartbeat_seconds: u64,
 
-    /// Archivo de log. Relativo al ejecutable si no es ruta absoluta.
+    /// Log file. Relative to the executable unless it is an absolute path.
     #[serde(default = "default_log")]
     pub log_file: PathBuf,
 
-    /// Juegos a detectar. Solo estos se reportan: lo que no esta aca no sale
-    /// nunca de la maquina.
+    /// Games to detect. Only these are reported: anything not listed here
+    /// never leaves the machine.
     pub games: Vec<GameRule>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct GameRule {
-    /// Nombre tal cual lo espera Twitch, por ejemplo "League of Legends".
+    /// Name exactly as Twitch expects it, for example "League of Legends".
     pub name: String,
 
-    /// Cuando hay dos coincidencias a la vez gana la de numero mas alto.
-    /// Sirve para que el juego le gane al launcher.
+    /// When two rules match at once, the higher number wins.
+    /// This is how the game beats its launcher.
     #[serde(default)]
     pub priority: i32,
 
-    /// Ejecutables que cuentan como este juego. Se comparan sin distinguir
-    /// mayusculas.
+    /// Executables that count as this game. Compared case-insensitively.
     pub processes: Vec<String>,
 }
 
@@ -70,7 +69,7 @@ impl Config {
         })?;
 
         let cfg: Config =
-            toml::from_str(&raw).map_err(|e| format!("{} tiene un error: {e}", path.display()))?;
+            toml::from_str(&raw).map_err(|e| format!("{} has an error: {e}", path.display()))?;
 
         cfg.validate()?;
         Ok(cfg)
@@ -81,8 +80,8 @@ impl Config {
             return Err("Missing 'endpoint' in agent.toml".into());
         }
         if self.endpoint.starts_with("https://") {
-            // Mejor un error claro aca que un fallo de transporte opaco al
-            // primer envio: este binario se compila sin TLS.
+            // Better a clear error here than an opaque transport failure on
+            // the first send: this binary is built without TLS.
             return Err(
                 "This build does not support https. Use http:// over Tailscale, or rebuild ureq with native-tls for a public endpoint."
                     .to_string(),
@@ -111,8 +110,8 @@ impl Config {
         Ok(())
     }
 
-    /// Resuelve una ruta relativa contra la carpeta del ejecutable, para que
-    /// el agente funcione igual lo lance quien lo lance.
+    /// Resolves a relative path against the executable's folder, so the
+    /// agent behaves the same no matter who launches it.
     pub fn resolve(base: &Path, path: &Path) -> PathBuf {
         if path.is_absolute() {
             path.to_path_buf()
@@ -127,19 +126,19 @@ impl Config {
 // ---------------------------------------------------------------------------
 //
 // Naming: [method]_when_[scenario]_[expected_result]
-// No tocan el sistema de archivos ni la red.
+// They touch neither the file system nor the network.
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    /// Config valida de referencia. Cada test parte de esta y muta solo el
-    /// campo que quiere probar, manteniendo los demas en estado valido.
+    /// Valid reference config. Each test starts from it and changes only the
+    /// field it wants to test, keeping the rest valid.
     fn valid() -> Config {
         Config {
             endpoint: "http://localhost:8787/game".to_string(),
-            token: "mi-token-secreto".to_string(),
+            token: "my-secret-token".to_string(),
             poll_seconds: 5,
             heartbeat_seconds: 60,
             log_file: PathBuf::from("agent.log"),
@@ -163,7 +162,7 @@ mod tests {
         let mut cfg = valid();
         cfg.endpoint = "".to_string();
         let err = cfg.validate().unwrap_err();
-        assert!(err.contains("endpoint"), "mensaje: {err}");
+        assert!(err.contains("endpoint"), "message: {err}");
     }
 
     #[test]
@@ -180,7 +179,7 @@ mod tests {
         let err = cfg.validate().unwrap_err();
         assert!(
             err.contains("https") || err.contains("TLS") || err.contains("tls"),
-            "mensaje: {err}"
+            "message: {err}"
         );
     }
 
@@ -189,7 +188,7 @@ mod tests {
         let mut cfg = valid();
         cfg.endpoint = "localhost:8787/game".to_string();
         let err = cfg.validate().unwrap_err();
-        assert!(err.contains("http://"), "mensaje: {err}");
+        assert!(err.contains("http://"), "message: {err}");
     }
 
     #[test]
@@ -197,15 +196,15 @@ mod tests {
         let mut cfg = valid();
         cfg.token = "".to_string();
         let err = cfg.validate().unwrap_err();
-        assert!(err.contains("token"), "mensaje: {err}");
+        assert!(err.contains("token"), "message: {err}");
     }
 
     #[test]
     fn validate_when_token_is_placeholder_returns_err() {
         let mut cfg = valid();
-        cfg.token = "CAMBIAME".to_string();
+        cfg.token = "CHANGEME".to_string();
         let err = cfg.validate().unwrap_err();
-        assert!(err.contains("token"), "mensaje: {err}");
+        assert!(err.contains("token"), "message: {err}");
     }
 
     #[test]
@@ -213,7 +212,7 @@ mod tests {
         let mut cfg = valid();
         cfg.games = vec![];
         let err = cfg.validate().unwrap_err();
-        assert!(err.contains("games") || err.contains("juego"), "mensaje: {err}");
+        assert!(err.contains("games") || err.contains("game"), "message: {err}");
     }
 
     #[test]
@@ -221,7 +220,7 @@ mod tests {
         let mut cfg = valid();
         cfg.poll_seconds = 0;
         let err = cfg.validate().unwrap_err();
-        assert!(err.contains("poll"), "mensaje: {err}");
+        assert!(err.contains("poll"), "message: {err}");
     }
 
     #[test]
@@ -231,7 +230,7 @@ mod tests {
         let err = cfg.validate().unwrap_err();
         assert!(
             err.contains("League of Legends") || err.contains("processes"),
-            "mensaje: {err}"
+            "message: {err}"
         );
     }
 
@@ -239,7 +238,7 @@ mod tests {
     fn validate_when_one_valid_and_one_empty_game_returns_err() {
         let mut cfg = valid();
         cfg.games.push(GameRule {
-            name: "Juego Roto".to_string(),
+            name: "Broken Game".to_string(),
             priority: 0,
             processes: vec![],
         });

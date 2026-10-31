@@ -1,14 +1,14 @@
-"""Tests de predictions con estado leido del cliente local (via el agente).
+"""Tests for predictions driven by state read from the local client (through the agent).
 
-Cubren el orden de fuentes: primero el cliente local que reporta el agente,
-despues las APIs publicas (Riot para LoL, cliente local del bot para Valorant).
+They cover the source order: first the local client reported by the agent,
+then the public APIs (Riot for LoL, the bot's own local client for Valorant).
 
-Convenciones
-------------
-* Nombre: ``test_<metodo>_When<Escenario>_<Resultado>``.
-* ``cfg`` se parchea en tiempo de ejecucion con el fixture ``runtime_cfg``:
-  el fixture ``mock_arbiter`` solo lo parchea durante la construccion.
-* Nada toca la red: Helix, LolClient y el cliente de Valorant son mocks.
+Conventions
+-----------
+* Name: ``test_<method>_When<Scenario>_<Result>``.
+* ``cfg`` is patched at runtime with the ``runtime_cfg`` fixture: the
+  ``mock_arbiter`` fixture only patches it during construction.
+* Nothing touches the network: Helix, LolClient and the Valorant client are mocks.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ OUTCOMES = [{"id": "o-win", "title": "Gana"}, {"id": "o-loss", "title": "Pierde"
 # ---------------------------------------------------------------------------
 
 def agent(game: str, match_id: str | None = None, **metadata) -> Report:
-    """Reporte fresco del agente, con el estado del cliente local en metadata."""
+    """Fresh agent report, with the local client state in metadata."""
     return Report(
         game=game,
         at=time.monotonic(),
@@ -73,7 +73,7 @@ def arbiter(mock_arbiter: GameArbiter, mock_helix) -> GameArbiter:
 
 
 # ---------------------------------------------------------------------------
-# report(): cuando se vuelve a evaluar
+# report(): when it re-evaluates
 # ---------------------------------------------------------------------------
 
 class TestReportReschedules:
@@ -120,13 +120,13 @@ class TestMatchKey:
         arbiter.lol.active_game_id.assert_not_called()
 
     async def test_matchKey_WhenLocalLoLPostGame_ReturnsNone(self, arbiter, runtime_cfg):
-        # La partida ya termino: abrir una prediction ahora no tiene sentido.
+        # The match already ended: opening a prediction now makes no sense.
         arbiter._reports["agent"] = agent("League of Legends", "55", source="lcu", phase="post_game")
         assert await arbiter._prediction_match_key("league of legends") is None
 
     async def test_matchKey_WhenNoLocalData_FallsBackToRiotApi(self, arbiter, runtime_cfg):
         arbiter.lol = lol_client(configured=True, active="777")
-        arbiter._reports["agent"] = agent("League of Legends", None)  # agente sin datos del cliente
+        arbiter._reports["agent"] = agent("League of Legends", None)  # agent without client data
         assert await arbiter._prediction_match_key("league of legends") == "lol:777"
 
     async def test_matchKey_WhenNoLocalDataAndKeyExpired_ReturnsNone(self, arbiter, runtime_cfg):
@@ -162,7 +162,7 @@ class TestMatchKey:
 
 
 # ---------------------------------------------------------------------------
-# _prediction_result: resultado local, Match-V5 de respaldo
+# _prediction_result: local result, Match-V5 as fallback
 # ---------------------------------------------------------------------------
 
 class TestPredictionResult:
@@ -201,7 +201,7 @@ class TestPredictionResult:
 
 
 # ---------------------------------------------------------------------------
-# _check_lol_prediction_finished: cuando disparar la resolucion
+# _check_lol_prediction_finished: when to trigger resolution
 # ---------------------------------------------------------------------------
 
 class TestLoLFinished:
@@ -228,8 +228,8 @@ class TestLoLFinished:
         arbiter._schedule_prediction_result.assert_called_once()
 
     async def test_finished_WhenOverWithoutResultAndNoKey_DoesNotLoop(self, arbiter, runtime_cfg):
-        # Sin resultado local ni key no hay nada que consultar: no se lanza
-        # una resolucion que va a fallar cada minuto.
+        # With no local result and no key there is nothing to query: do not
+        # start a resolution that will fail every minute.
         arbiter.lol = lol_client(configured=False)
         arbiter._reports["agent"] = agent("League of Legends", None, source="lcu", phase="menus")
         arbiter._schedule_prediction_result = MagicMock()
@@ -238,7 +238,7 @@ class TestLoLFinished:
 
 
 # ---------------------------------------------------------------------------
-# _maybe_start_prediction y el flujo completo
+# _maybe_start_prediction and the full flow
 # ---------------------------------------------------------------------------
 
 class TestPredictionFlow:
@@ -259,7 +259,7 @@ class TestPredictionFlow:
     async def test_flow_WhenLoLMatchStartsAndEnds_CreatesAndResolvesLocally(
         self, arbiter, mock_helix, mock_state, runtime_cfg
     ):
-        # Riot no esta disponible: todo sale del cliente local.
+        # Riot is unavailable: everything comes from the local client.
         arbiter.lol = lol_client(configured=False)
 
         arbiter._reports["agent"] = agent("League of Legends", "55", source="lcu", phase="in_game", result=None)
@@ -285,7 +285,7 @@ class TestPredictionFlow:
 
 
 # ---------------------------------------------------------------------------
-# _skip: sin repetir el mismo motivo cada minuto
+# _skip: without repeating the same reason every minute
 # ---------------------------------------------------------------------------
 
 class TestSkipLogging:
@@ -307,7 +307,7 @@ class TestSkipLogging:
 
 
 # ---------------------------------------------------------------------------
-# Cliente local de Valorant del bot (respaldo cuando corre en la misma PC)
+# The bot's own Valorant local client (fallback when it runs on the same PC)
 # ---------------------------------------------------------------------------
 
 def _b64(data: dict) -> str:
@@ -323,7 +323,7 @@ class TestValorantPresenceHelpers:
         raw = base64.urlsafe_b64encode(json.dumps({"a": ">>>?"}).encode()).decode().rstrip("=")
         assert decode_presence_private(raw) == {"a": ">>>?"}
 
-    # "bm8gZXMganNvbg==" es base64 valido de "no es json".
+    # "bm8gZXMganNvbg==" is valid base64 for "no es json" (not JSON).
     @pytest.mark.parametrize("value", [None, "", 123, "@@@", "bm8gZXMganNvbg=="])
     def test_decode_WhenInvalid_ReturnsNone(self, value):
         assert decode_presence_private(value) is None
@@ -377,7 +377,7 @@ class TestValorantLocalClient:
         assert client._match_id is None
 
     async def test_localPuuid_WhenSessionUsesPuuidField_ReadsIt(self):
-        # Formato real visto en el cliente: el campo es `puuid`, no `subject`.
+        # Real format seen on the client: the field is `puuid`, not `subject`.
         client = ValorantLocalClient(MagicMock())
         client._read_lockfile = MagicMock(return_value=(1234, "pw"))
         client._local_get = AsyncMock(return_value={"puuid": "65a61def", "game_name": "ChaarQueen"})

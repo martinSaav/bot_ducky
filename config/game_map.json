@@ -1,9 +1,9 @@
 {
   "_readme": [
-    "Mapea el nombre de la actividad de Discord -> nombre EXACTO de la categoria en Twitch.",
-    "Las claves se comparan en minusculas. Si un juego no esta aca, el bot lo busca",
-    "solo con /helix/search/categories y cachea el resultado en data/state.json.",
-    "Agrega entradas solo cuando el match automatico falle o sea ambiguo."
+    "Maps the Discord activity name -> EXACT name of the Twitch category.",
+    "Keys are compared in lowercase. If a game is not listed here, the bot looks it",
+    "up on its own with /helix/search/categories and caches the result in data/state.json.",
+    "Only add entries when the automatic match fails or is ambiguous."
   ],
 
   "map": {

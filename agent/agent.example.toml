@@ -1,36 +1,36 @@
-# Configuracion del agente. Copiar a agent.toml, al lado del .exe.
+# Agent configuration. Copy to agent.toml, next to the .exe.
 #
-# Regla importante: SOLO se reportan los juegos declarados aca abajo.
-# Cualquier otro programa que este abierto se descarta en el acto y nunca
-# sale de la maquina.
+# Important rule: ONLY the games declared below are reported.
+# Any other open program is discarded on the spot and never leaves the
+# machine.
 
-# Endpoint del bot. Con Tailscale es la IP 100.x que te da `tailscale ip -4`
-# en la PC donde corre el bot.
+# Bot endpoint. With Tailscale it is the 100.x IP that `tailscale ip -4`
+# prints on the PC where the bot runs.
 endpoint = "http://100.0.0.0:8787/game"
 
-# Secreto compartido. Tiene que ser identico a AGENT_TOKEN en el .env del bot.
-# Genera uno con:  python -c "import secrets; print(secrets.token_urlsafe(32))"
-token = "CAMBIAME"
+# Shared secret. Must be identical to AGENT_TOKEN in the bot's .env.
+# Generate one with:  python -c "import secrets; print(secrets.token_urlsafe(32))"
+token = "CHANGEME"
 
-# Cada cuanto se miran los procesos.
+# How often processes are checked.
 poll_seconds = 5
 
-# Cada cuanto se reenvia el estado aunque no haya cambiado, para que el bot
-# sepa que el agente sigue vivo.
+# How often the state is re-sent even if it did not change, so the bot
+# knows the agent is alive.
 heartbeat_seconds = 60
 
 log_file = "agent.log"
 
 # ---------------------------------------------------------------------------
-#  Juegos
+#  Games
 #
-#  name      = nombre EXACTO de la categoria en Twitch
-#  priority  = ante dos coincidencias simultaneas gana el numero mas alto.
-#              Por eso el juego (20) le gana al launcher (10): con el cliente
-#              de Riot y la partida abiertos a la vez, reporta la partida.
-#  processes = ejecutables que cuentan. No distingue mayusculas.
+#  name      = EXACT name of the Twitch category
+#  priority  = when two rules match at the same time, the higher number wins.
+#              That is why the game (20) beats the launcher (10): with the
+#              Riot client and the match open at once, it reports the match.
+#  processes = executables that count. Case-insensitive.
 #
-#  Para agregar uno nuevo: abri el juego y corre  twitch-game-agent.exe --scan
+#  To add a new one: open the game and run  twitch-game-agent.exe --scan
 # ---------------------------------------------------------------------------
 
 [[games]]
@@ -43,9 +43,9 @@ name = "VALORANT"
 priority = 10
 processes = ["VALORANT.exe"]
 
-# OJO: TFT corre dentro del mismo ejecutable que el LoL, asi que por proceso
-# no se pueden distinguir. Si arranca una partida de TFT va a quedar en
-# "League of Legends"; se corrige desde el chat con  !categoria Teamfight Tactics
+# NOTE: TFT runs inside the same executable as LoL, so the two cannot be told
+# apart by process. A TFT match will show up as "League of Legends"; fix it
+# from chat with  !categoria Teamfight Tactics
 [[games]]
 name = "League of Legends"
 priority = 20
@@ -140,8 +140,8 @@ processes = ["Schedule I.exe"]
 name = "Minecraft"
 priority = 20
 processes = ["Minecraft.Windows.exe"]
-# Minecraft Java corre como javaw.exe, que usa cualquier programa hecho en
-# Java. Agregarlo daria falsos positivos, asi que queda afuera a proposito.
+# Minecraft Java runs as javaw.exe, which any Java program uses. Adding it
+# would cause false positives, so it is left out on purpose.
 
 [[games]]
 name = "Roblox"

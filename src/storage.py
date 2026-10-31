@@ -1,4 +1,4 @@
-"""Persistencia simple en JSON con escritura atómica."""
+"""Simple JSON persistence with atomic writes."""
 from __future__ import annotations
 
 import asyncio
@@ -10,10 +10,10 @@ from typing import Any
 
 
 class JsonStore:
-    """Diccionario respaldado por un archivo JSON.
+    """Dictionary backed by a JSON file.
 
-    La escritura es atómica (tmp + os.replace) para que un corte a mitad
-    de guardado no deje el archivo de tokens corrupto.
+    Writes are atomic (tmp + os.replace), so a crash halfway through a save
+    cannot leave the tokens file corrupted.
     """
 
     def __init__(self, path: Path):
@@ -27,7 +27,7 @@ class JsonStore:
         try:
             return json.loads(self.path.read_text(encoding="utf-8")) or {}
         except (json.JSONDecodeError, OSError):
-            # No perdemos el archivo roto: lo movemos a .bak para inspección.
+            # The broken file is not lost: it is moved to .bak for inspection.
             try:
                 self.path.replace(self.path.with_suffix(self.path.suffix + ".bak"))
             except OSError:
@@ -44,8 +44,8 @@ class JsonStore:
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
-        # En Windows los tokens quedan protegidos por ACL de usuario; en
-        # POSIX ajustamos permisos a 600 porque el archivo es sensible.
+        # On Windows the tokens are protected by the user's ACL; on POSIX the
+        # permissions are set to 600 because the file is sensitive.
         if os.name == "posix":
             os.chmod(self.path, 0o600)
 
@@ -69,6 +69,6 @@ class JsonStore:
             return current
 
     def set_sync(self, key: str, value: Any) -> None:
-        """Para scripts sin loop de asyncio (ej. tools/auth_twitch.py)."""
+        """For scripts without an asyncio loop (e.g. tools/auth_twitch.py)."""
         self._data[key] = value
         self._write()

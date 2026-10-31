@@ -1,19 +1,19 @@
-//! Estado de partida de Valorant, leido de la presencia local del cliente.
+//! Valorant match state, read from the client's local presence.
 //!
-//! Todo sale de la API local del Riot Client (127.0.0.1 + lockfile):
+//! Everything comes from the Riot Client's local API (127.0.0.1 + lockfile):
 //!
-//!   GET /chat/v1/session    -> PUUID de la cuenta logueada
-//!   GET /chat/v4/presences  -> presencias; la propia trae un campo `private`
-//!                              en base64 con el estado de la sesion de juego
+//!   GET /chat/v1/session    -> PUUID of the signed-in account
+//!   GET /chat/v4/presences  -> presences; our own has a base64 `private`
+//!                              field with the state of the game session
 //!
-//! Antes se pedian /core-game y /pregame a esta misma API, pero esos
-//! endpoints viven en los servidores remotos de Riot (glz-*.a.pvp.net) y
-//! piden otra autenticacion. En localhost devuelven 404 siempre, y el agente
-//! lo leia como "no hay partida".
+//! The agent used to ask this same API for /core-game and /pregame, but those
+//! endpoints live on Riot's remote servers (glz-*.a.pvp.net) and need a
+//! different authentication. On localhost they always return 404, and the
+//! agent read that as "no match".
 //!
-//! La presencia no trae un ID de partida, asi que el agente crea uno propio
-//! cuando ella sale de los menus y lo suelta cuando vuelve. Alcanza para que
-//! el bot no cree dos predictions para la misma partida.
+//! The presence carries no match ID, so the agent creates its own key when
+//! she leaves the menus and releases it when she goes back. That is enough to
+//! keep the bot from creating two predictions for the same match.
 
 use std::path::PathBuf;
 
@@ -41,7 +41,7 @@ impl Phase {
         }
     }
 
-    /// Vocabulario comun con el agente de LoL: es lo que lee el bot.
+    /// Vocabulary shared with the LoL tracker: this is what the bot reads.
     pub fn as_str(&self) -> &str {
         match self {
             Phase::Menus => "menus",
@@ -60,11 +60,12 @@ pub struct PresenceState {
     pub enemy: Option<i64>,
 }
 
-/// Primer valor no nulo entre varias rutas posibles.
+/// First non-null value among several possible paths.
 ///
-/// Riot reestructuro la presencia privada: el formato viejo es plano
-/// (`sessionLoopState`) y el nuevo agrupa por objeto (`matchPresenceData`,
-/// `partyPresenceData`). Se prueban las dos para no depender de la version.
+/// Riot restructured the private presence: the old format is flat
+/// (`sessionLoopState`) and the new one groups fields into objects
+/// (`matchPresenceData`, `partyPresenceData`). Both are tried so the agent
+/// does not depend on the client version.
 fn first<'a>(v: &'a Value, paths: &[&[&str]]) -> Option<&'a Value> {
     paths.iter().find_map(|path| {
         let mut cur = v;
@@ -109,8 +110,8 @@ pub fn parse_private(private: &Value) -> PresenceState {
     }
 }
 
-/// Los campos de la presencia decodificada, para el log cuando no se
-/// encuentra el estado: asi la primera sesion real dice que ajustar.
+/// The fields of the decoded presence, for the log when the state is not
+/// found: that way the first real session tells us what to adjust.
 pub fn describe_keys(v: &Value) -> String {
     let Some(obj) = v.as_object() else {
         return "(not an object)".to_string();
@@ -133,7 +134,7 @@ pub fn decode_private(b64: &str) -> Option<Value> {
     serde_json::from_slice(&local::base64_decode(b64)?).ok()
 }
 
-/// La presencia propia de Valorant dentro de la respuesta de /chat/v4/presences.
+/// Our own Valorant presence within the /chat/v4/presences response.
 pub fn own_presence<'a>(presences: &'a Value, puuid: &str) -> Option<&'a Value> {
     presences.get("presences")?.as_array()?.iter().find(|p| {
         p.get("puuid").and_then(Value::as_str) == Some(puuid)
@@ -193,8 +194,8 @@ impl ValorantTracker {
     }
 
     pub fn poll(&mut self, diag: &mut Diagnostics) -> Snapshot {
-        // Si esta vez no se pudo leer la presencia, el estado anterior queda
-        // como estaba: un error pasajero no debe dar por terminada la partida.
+        // If the presence could not be read this time, the previous state
+        // stays as it was: a transient error must not end the match.
         if let Some(state) = self.read_presence(diag) {
             self.advance(state, local::unix_millis(), diag);
         }
@@ -210,7 +211,7 @@ impl ValorantTracker {
             }
         };
         if self.session.as_ref() != Some(&lockfile) {
-            // Cliente nuevo o reiniciado: la cuenta pudo haber cambiado.
+            // New or restarted client: the account may have changed.
             self.puuid = None;
             self.session = Some(lockfile.clone());
         }
@@ -271,7 +272,7 @@ impl ValorantTracker {
                 return None;
             }
         };
-        // El campo se llama `puuid`; algunas versiones viejas usaban `subject`.
+        // The field is called `puuid`; some older versions used `subject`.
         let puuid = body
             .get("puuid")
             .or_else(|| body.get("subject"))
@@ -299,7 +300,7 @@ impl ValorantTracker {
         }
     }
 
-    /// Avanza la maquina de estados con una lectura de la presencia.
+    /// Advances the state machine with one reading of the presence.
     fn advance(&mut self, state: PresenceState, now_ms: u128, diag: &mut Diagnostics) {
         let phase = state.phase.unwrap_or_else(|| Phase::Other("unknown".into()));
         match &phase {
@@ -328,8 +329,8 @@ impl ValorantTracker {
                     self.enemy = None;
                 }
             }
-            // Un estado que no conocemos no termina ni empieza nada: mejor
-            // perder una prediction que inventar el fin de una partida.
+            // A state we do not know neither ends nor starts anything: better
+            // to miss a prediction than to invent the end of a match.
             Phase::Other(_) => {}
         }
         self.phase = Some(phase);
@@ -365,7 +366,7 @@ impl ValorantTracker {
 // ---------------------------------------------------------------------------
 //
 // Naming: [method]_when_[scenario]_[expected_result]
-// No tocan la red ni el cliente real: la presencia se arma a mano.
+// They touch neither the network nor the real client: presences are built by hand.
 
 #[cfg(test)]
 mod tests {
@@ -439,7 +440,7 @@ mod tests {
 
     #[test]
     fn decode_private_when_not_json_returns_none() {
-        assert_eq!(decode_private(&local::base64_encode(b"no es json")), None);
+        assert_eq!(decode_private(&local::base64_encode(b"not json")), None);
     }
 
     #[test]
@@ -449,7 +450,7 @@ mod tests {
             { "puuid": "me", "product": "league_of_legends", "private": "b" },
             { "puuid": "me", "product": "valorant", "private": "c" }
         ]});
-        let own = own_presence(&presences, "me").expect("debe encontrar la propia");
+        let own = own_presence(&presences, "me").expect("should find our own entry");
         assert_eq!(own["private"], "c");
     }
 
@@ -506,7 +507,7 @@ mod tests {
         let meta = s.metadata.unwrap();
         assert_eq!(meta["last_match"]["id"], "val-1000");
         assert_eq!(meta["last_match"]["score"], json!({ "ally": 13, "enemy": 10 }));
-        assert!(meta.get("score").is_none(), "fuera de partida no hay score en vivo");
+        assert!(meta.get("score").is_none(), "outside a match there is no live score");
     }
 
     #[test]

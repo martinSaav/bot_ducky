@@ -1,10 +1,10 @@
-//! Plumbing comun para las APIs locales de los clientes de Riot.
+//! Shared plumbing for the local APIs of Riot's game clients.
 //!
-//! El Riot Client (Valorant) y el cliente de League (LCU) exponen APIs HTTPS
-//! en 127.0.0.1 con un certificado auto-firmado, protegidas con la contrasena
-//! de un lockfile. Las llamadas se delegan a curl.exe, que viene con Windows
-//! 10/11: el agente no necesita una pila TLS propia, y el toolchain GNU no
-//! necesita un compilador de C para armarla.
+//! The Riot Client (Valorant) and the League client (LCU) expose HTTPS APIs
+//! on 127.0.0.1 with a self-signed certificate, protected by the password in
+//! a lockfile. Calls are delegated to curl.exe, which ships with Windows
+//! 10/11: the agent needs no TLS stack of its own, and the GNU toolchain needs
+//! no C compiler to build one.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,12 +15,12 @@ use serde_json::Value;
 
 const STATUS_MARKER: &str = "__HTTP_STATUS__:";
 
-/// Resultado de un GET a una API local.
+/// Result of a GET to a local API.
 ///
-/// Distinguir el 404 importa: en estas APIs significa "eso no existe ahora"
-/// (no hay partida, no hay pantalla de fin), mientras que cualquier otro
-/// fallo significa que algo anda mal. Mezclar los dos fue lo que escondio que
-/// el agente le pedia a localhost endpoints que solo existen en Riot.
+/// Telling a 404 apart matters: on these APIs it means "that does not exist
+/// right now" (no match, no end-of-game screen), while any other failure
+/// means something is wrong. Lumping the two together is what hid that the
+/// agent was asking localhost for endpoints that only exist on Riot's servers.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Fetch {
     Ok(Value),
@@ -28,7 +28,7 @@ pub enum Fetch {
     Failed(String),
 }
 
-/// Lo que un juego le aporta al reporte: la partida activa y su estado.
+/// What a game contributes to the report: the active match and its state.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Snapshot {
     pub match_id: Option<String>,
@@ -51,7 +51,7 @@ impl Lockfile {
     }
 }
 
-/// Formato del lockfile: `nombre:pid:puerto:contrasena:protocolo`.
+/// Lockfile format: `name:pid:port:password:protocol`.
 pub fn parse_lockfile(content: &str) -> Result<Lockfile, String> {
     let parts: Vec<&str> = content.trim().split(':').collect();
     if parts.len() < 5 {
@@ -75,7 +75,7 @@ pub fn read_lockfile(path: &Path) -> Result<Lockfile, String> {
     parse_lockfile(&content)
 }
 
-/// GET HTTPS via curl.exe, aceptando el certificado auto-firmado local.
+/// HTTPS GET through curl.exe, accepting the local self-signed certificate.
 pub fn get(url: &str, auth: Option<&str>) -> Fetch {
     let mut cmd = Command::new("curl.exe");
     cmd.args([
@@ -97,9 +97,9 @@ pub fn get(url: &str, auth: Option<&str>) -> Fetch {
         Ok(o) => o,
         Err(e) => return Fetch::Failed(format!("cannot start curl.exe: {e}")),
     };
-    // curl sale con 0 ante cualquier respuesta HTTP (404 incluido) y con otro
-    // codigo solo si no pudo hablar con el servidor: cliente cerrado, puerto
-    // equivocado, timeout.
+    // curl exits with 0 on any HTTP response (404 included) and with another
+    // code only when it could not reach the server: client closed, wrong
+    // port, timeout.
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Fetch::Failed(format!(
@@ -111,7 +111,7 @@ pub fn get(url: &str, auth: Option<&str>) -> Fetch {
     parse_curl_output(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// Separa el cuerpo del codigo HTTP que curl agrega al final con --write-out.
+/// Splits the body from the HTTP status code that curl appends with --write-out.
 pub fn parse_curl_output(stdout: &str) -> Fetch {
     let Some((body, status)) = stdout.rsplit_once(STATUS_MARKER) else {
         return Fetch::Failed("curl returned no HTTP status".to_string());
@@ -132,8 +132,8 @@ pub fn parse_curl_output(stdout: &str) -> Fetch {
     }
 }
 
-/// Sin esto, cuando el agente corre oculto cada llamada a curl podria abrir
-/// una consola fugaz en la PC de ella.
+/// Without this, when the agent runs hidden, every curl call could flash a
+/// console window on her PC.
 #[cfg(windows)]
 fn hide_window(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -148,8 +148,8 @@ pub fn clip(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
-/// Muestra solo las puntas de un identificador: alcanza para reconocerlo en
-/// el log sin dejarlo entero.
+/// Shows only the ends of an identifier: enough to recognize it in the log
+/// without writing it out in full.
 pub fn mask(id: &str) -> String {
     let n = id.chars().count();
     if n <= 12 {
@@ -183,7 +183,7 @@ pub fn base64_encode(input: &[u8]) -> String {
     out
 }
 
-/// Acepta base64 estandar y la variante URL-safe, con o sin relleno.
+/// Accepts standard and URL-safe base64, with or without padding.
 pub fn base64_decode(input: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(input.len() * 3 / 4);
     let mut buf: u32 = 0;
@@ -225,12 +225,12 @@ impl Level {
     }
 }
 
-/// Diagnosticos con memoria por tema.
+/// Diagnostics with per-topic memory.
 ///
-/// El agente consulta cada 5 s, y cada linea de log es un POST al bot. Antes
-/// cada consulta repetia las mismas lineas y el agent.log del bot llego a casi
-/// 3 MB de "Lockfile loaded". Ahora un tema se registra solo cuando su mensaje
-/// cambia; los hechos puntuales (empezo una partida) van por `event`.
+/// The agent polls every 5 s, and every log line is a POST to the bot. Each
+/// poll used to repeat the same lines, and the bot's agent.log grew to almost
+/// 3 MB of "Lockfile loaded". Now a topic is logged only when its message
+/// changes; one-off facts (a match started) go through `event`.
 #[derive(Debug, Default)]
 pub struct Diagnostics {
     last: HashMap<String, String>,
@@ -242,7 +242,7 @@ impl Diagnostics {
         Self::default()
     }
 
-    /// Estado actual de un tema. Se registra solo si cambio desde la vez anterior.
+    /// Current state of a topic. Logged only if it changed since last time.
     pub fn status(&mut self, scope: &str, topic: &str, level: Level, msg: impl Into<String>) {
         let msg = msg.into();
         let key = format!("{scope}.{topic}");
@@ -253,13 +253,13 @@ impl Diagnostics {
         self.push(scope, level, &msg);
     }
 
-    /// Un hecho puntual: se registra siempre.
+    /// A one-off fact: always logged.
     pub fn event(&mut self, scope: &str, level: Level, msg: impl Into<String>) {
         self.push(scope, level, &msg.into());
     }
 
-    /// Olvida los temas de un ambito, asi la proxima sesion del juego vuelve
-    /// a registrar su estado desde el principio.
+    /// Forgets the topics of a scope, so the game's next session logs its
+    /// state again from the start.
     pub fn forget(&mut self, scope: &str) {
         let prefix = format!("{scope}.");
         self.last.retain(|k, _| !k.starts_with(&prefix));
@@ -343,21 +343,21 @@ mod tests {
 
     #[test]
     fn base64_decode_accepts_url_safe_and_missing_padding() {
-        // "riot:pw" sin '=' de relleno
+        // "riot:pw" without the '=' padding
         assert_eq!(base64_decode("cmlvdDpwdw").unwrap(), b"riot:pw");
-        // ">>>" -> "Pj4+" estandar, "Pj4-" url-safe
+        // ">>>" -> "Pj4+" standard, "Pj4-" url-safe
         assert_eq!(base64_decode("Pj4-").unwrap(), b">>>");
     }
 
     #[test]
     fn base64_decode_when_invalid_char_returns_none() {
-        assert!(base64_decode("no*valido").is_none());
+        assert!(base64_decode("not*valid").is_none());
     }
 
     #[test]
     fn mask_keeps_only_the_ends() {
         assert_eq!(mask("65a61def-830c-5314-8981-c233c58c7363"), "65a61def...7363");
-        assert_eq!(mask("corto"), "corto");
+        assert_eq!(mask("short"), "short");
     }
 
     #[test]

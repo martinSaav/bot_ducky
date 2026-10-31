@@ -1,8 +1,8 @@
-//! Envio del estado al bot.
+//! Sending the state to the bot.
 //!
-//! Siempre se manda el estado ABSOLUTO ("ahora esta jugando X" o "ahora no
-//! juega nada"), nunca un delta. Asi un mensaje perdido se corrige solo en el
-//! siguiente latido y no hace falta cola ni reintentos con memoria.
+//! The ABSOLUTE state is always sent ("now playing X" or "now playing
+//! nothing"), never a delta. A lost message fixes itself on the next
+//! heartbeat, with no queue and no retries that need memory.
 
 use std::time::Duration;
 
@@ -29,7 +29,7 @@ impl Reporter {
 
         let host = std::env::var("COMPUTERNAME")
             .or_else(|_| std::env::var("HOSTNAME"))
-            .unwrap_or_else(|_| "desconocido".to_string());
+            .unwrap_or_else(|_| "unknown".to_string());
 
         Self {
             log_endpoint: endpoint
@@ -99,7 +99,7 @@ impl Reporter {
             Err(ureq::Error::Status(code, resp)) => {
                 let detail = resp
                     .into_string()
-                    .unwrap_or_else(|_| "sin cuerpo".to_string());
+                    .unwrap_or_else(|_| "no body".to_string());
                 let detail = detail.chars().take(200).collect::<String>();
                 Err(format!("Bot returned HTTP {code}: {detail}"))
             }

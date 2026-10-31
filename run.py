@@ -1,11 +1,11 @@
-"""Punto de entrada: levanta los tres subsistemas en un solo proceso asyncio.
+"""Entry point: starts the three subsystems in a single asyncio process.
 
-  1. Auto-categorizador  (agente de escritorio y/o presencia de Discord)
-  2. Bot de chat         (IRC de Twitch + comandos con stats de Riot)
-  3. Pipeline de clips   (Helix -> yt-dlp -> Google Drive, diario)
+  1. Auto-categorizer  (desktop agent and/or Discord presence)
+  2. Chat bot          (Twitch IRC + commands with Riot stats)
+  3. Clips pipeline    (Helix -> yt-dlp -> Google Drive, daily)
 
-Cada subsistema se activa solo si su configuracion esta completa, asi que
-podes empezar con uno y sumar los demas despues.
+Each subsystem starts only if its configuration is complete, so you can
+start with one and add the rest later.
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ async def monitor_stream(
                     session_game = live.get("game_name")
                     stream_started_at = _parse_stream_started(live.get("started_at"))
 
-                    # Intentar recuperar una sesion previa de la DB (reinicio mid-stream).
+                    # Try to recover a previous session from the DB (restart mid-stream).
                     recovered = False
                     if database_history is not None and stream_id:
                         existing_started = await database_history.get_open_session(stream_id)
@@ -170,25 +170,25 @@ def _parse_stream_started(value: str | None) -> datetime:
 
 
 async def resolve_broadcaster_id(auth: TwitchAuth, helix: Helix) -> str:
-    """user_id del canal a administrar, desde el token o desde /helix/users."""
+    """user_id of the channel to manage, from the token or from /helix/users."""
     entry = auth.info("broadcaster")
     if entry.get("user_id"):
         login = (entry.get("login") or "").lower()
         if login and login != cfg.twitch_channel:
-            # Cortamos en vez de avisar: seguir significaria cambiarle la
-            # categoria al canal equivocado, y un warning en el log no es
-            # proteccion suficiente para eso.
+            # Stop instead of warning: carrying on would change the wrong
+            # channel's category, and a warning in the log is not enough
+            # protection against that.
             raise RuntimeError(
-                f"El token de broadcaster es de '{login}' pero TWITCH_CHANNEL es "
-                f"'{cfg.twitch_channel}'. Con esto le cambiaria la categoria al canal "
-                f"equivocado.\n"
-                f"    Reautoriza con la cuenta correcta:\n"
+                f"The broadcaster token belongs to '{login}' but TWITCH_CHANNEL is "
+                f"'{cfg.twitch_channel}'. This would change the wrong channel's "
+                f"category.\n"
+                f"    Authorize again with the right account:\n"
                 f"      python tools/auth_twitch.py broadcaster"
             )
         return str(entry["user_id"])
     user = await helix.get_user(cfg.twitch_channel)
     if not user:
-        raise RuntimeError(f"No existe el canal de Twitch '{cfg.twitch_channel}'")
+        raise RuntimeError(f"Twitch channel '{cfg.twitch_channel}' does not exist")
     return str(user["id"])
 
 
@@ -347,7 +347,7 @@ async def main() -> int:
                 "Chat bot: disabled (missing 'python tools/auth_twitch.py bot')"
             )
 
-        # --- 1a. agente de escritorio (fuente principal) ------------------
+        # --- 1a. desktop agent (primary source) ----------------------------
         agent_server: AgentServer | None = None
         if cfg.agent_token:
             agent_server = AgentServer(arbiter, status_provider=status_provider)
@@ -355,11 +355,11 @@ async def main() -> int:
             status_provider.agent_active = True
         else:
             log.warning("Desktop agent: disabled (missing AGENT_TOKEN)")
-            # Aún así levantamos el server para el dashboard.
+            # The server still starts, for the dashboard.
             agent_server = AgentServer(None, status_provider=status_provider)  # type: ignore[arg-type]
             await agent_server.start()
 
-        # --- 1b. presencia de Discord (respaldo) --------------------------
+        # --- 1b. Discord presence (fallback) ------------------------------
         if cfg.discord_token and cfg.discord_streamer_id:
             presence = PresenceBot(arbiter=arbiter)
             svc.presence = presence
@@ -385,9 +385,9 @@ async def main() -> int:
             name="stream-monitor",
         )
 
-        # --- reconexion DB en background ------------------------------------
-        # Si Postgres no estaba disponible al arranque, reintentamos cada 30s
-        # hasta conectar. Una vez conectado, activamos embeddings tambien.
+        # --- background DB reconnection ------------------------------------
+        # If Postgres was not available at startup, retry every 30s until it
+        # connects. Once connected, embeddings are enabled too.
         if cfg.database_url and database_history is not None and database_history._pool is None:  # noqa: SLF001
             async def _reconnect_db() -> None:
                 delay = 30
@@ -402,7 +402,7 @@ async def main() -> int:
                         log.info("PostgreSQL history: reconnected successfully")
                         svc.database_history = database_history
                         status_provider.db_active = True
-                        # Activar embeddings si todavia no estan corriendo.
+                        # Enable embeddings if they are not running yet.
                         if svc.embeddings is None and cfg.llm_api_key:
                             try:
                                 ew = EmbeddingWorker(
@@ -420,7 +420,7 @@ async def main() -> int:
                                 log.info("Embeddings: active after DB reconnect")
                             except Exception:  # noqa: BLE001
                                 log.exception("Embeddings: failed to start after DB reconnect")
-                        return  # ya conectamos, no hace falta seguir reintentando
+                        return  # connected; no need to keep retrying
                     except Exception:  # noqa: BLE001
                         log.warning("PostgreSQL history: still unavailable, retrying in %ds", delay)
 
@@ -448,8 +448,8 @@ async def main() -> int:
             try:
                 loop.add_signal_handler(sig, stop.set)
             except NotImplementedError:
-                # Windows no soporta add_signal_handler; el KeyboardInterrupt
-                # de asyncio.run se encarga.
+                # Windows does not support add_signal_handler; asyncio.run's
+                # KeyboardInterrupt handles it.
                 pass
 
         log.info("All systems up. Ctrl+C to stop.")

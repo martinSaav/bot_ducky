@@ -1,20 +1,20 @@
-﻿//! Estado de partida de League of Legends, leido del cliente local (LCU).
+﻿//! League of Legends match state, read from the local client (LCU).
 //!
-//! El cliente de League expone una API en 127.0.0.1, protegida con la
-//! contrasena del lockfile que deja en su carpeta de instalacion:
+//! The League client exposes an API on 127.0.0.1, protected by the password
+//! in the lockfile it leaves in its install folder:
 //!
-//!   GET /lol-gameflow/v1/gameflow-phase     -> en que pantalla esta
-//!   GET /lol-gameflow/v1/session            -> gameData.gameId de la partida
-//!   GET /lol-end-of-game/v1/eog-stats-block -> quien gano, al terminar
+//!   GET /lol-gameflow/v1/gameflow-phase     -> which screen it is on
+//!   GET /lol-gameflow/v1/session            -> gameData.gameId of the match
+//!   GET /lol-end-of-game/v1/eog-stats-block -> who won, when it ends
 //!
-//! No hace falta ninguna API key: es el cliente de ella hablando con su PC.
-//! El gameId es el mismo numero que usa Match-V5, asi que si el bot tiene una
-//! key de Riot valida puede confirmar el resultado por la API publica aunque
-//! el agente se pierda la pantalla de fin.
+//! No API key is needed: it is her client talking to her own PC. The gameId
+//! is the same number Match-V5 uses, so if the bot has a valid Riot key it
+//! can confirm the result through the public API even when the agent misses
+//! the end-of-game screen.
 //!
-//! Antes se consultaba la Live Client Data API (puerto 2999) con
-//! `Invoke-RestMethod -SkipCertificateCheck`, un parametro que solo existe en
-//! PowerShell 7. En `powershell.exe` (5.1) fallaba siempre, en silencio.
+//! The agent used to query the Live Client Data API (port 2999) with
+//! `Invoke-RestMethod -SkipCertificateCheck`, a parameter that only exists in
+//! PowerShell 7. On `powershell.exe` (5.1) it always failed, silently.
 
 use std::path::{Path, PathBuf};
 
@@ -24,10 +24,10 @@ use crate::local::{self, Diagnostics, Fetch, Level, Snapshot};
 
 const SCOPE: &str = "lol";
 
-/// Ruta de instalacion por defecto, para cuando no se puede deducir del proceso.
+/// Default install path, for when it cannot be derived from the process.
 const DEFAULT_LOCKFILE: &str = "C:\\Riot Games\\League of Legends\\lockfile";
 
-/// Lleva la fase del cliente al vocabulario comun que entiende el bot.
+/// Maps the client phase to the shared vocabulary the bot understands.
 pub fn normalize_phase(raw: &str) -> &'static str {
     match raw {
         "None" | "Lobby" | "Matchmaking" | "ReadyCheck" | "CheckedIntoTournament"
@@ -44,7 +44,7 @@ fn positive_id(v: &Value) -> Option<String> {
     (n > 0).then(|| n.to_string())
 }
 
-/// `gameData.gameId` de /lol-gameflow/v1/session. Vale 0 fuera de partida.
+/// `gameData.gameId` from /lol-gameflow/v1/session. It is 0 outside a match.
 pub fn parse_game_id(session: &Value) -> Option<String> {
     positive_id(session.get("gameData")?.get("gameId")?)
 }
@@ -53,9 +53,9 @@ pub fn parse_queue_id(session: &Value) -> Option<i64> {
     session.get("gameData")?.get("queue")?.get("id")?.as_i64()
 }
 
-/// (gameId, gano) del bloque de fin de partida, o None si no hay ganador
-/// claro (remake, datos incompletos): en ese caso que decida la API publica
-/// o un mod, en vez de adivinar.
+/// (gameId, won) from the end-of-game block, or None when there is no clear
+/// winner (remake, incomplete data): in that case let the public API or a
+/// mod decide, instead of guessing.
 pub fn parse_eog_result(eog: &Value) -> Option<(String, bool)> {
     let game_id = positive_id(eog.get("gameId")?)?;
     let local_player = eog.get("localPlayer")?;
@@ -92,14 +92,14 @@ fn result_json(won: Option<bool>) -> Value {
     }
 }
 
-/// Una partida y, si ya se sabe, su resultado.
+/// A match and, once known, its result.
 #[derive(Debug, Clone, PartialEq)]
 struct Outcome {
     id: String,
     won: Option<bool>,
 }
 
-/// Lo que se leyo del cliente en una consulta.
+/// What was read from the client in one poll.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Observation {
     pub raw_phase: String,
@@ -113,10 +113,10 @@ pub struct LolTracker {
     phase: Option<&'static str>,
     raw_phase: Option<String>,
     queue_id: Option<i64>,
-    /// La partida en curso, o la recien terminada mientras dura la pantalla de fin.
+    /// The match in progress, or the one that just ended while the end screen lasts.
     current: Option<Outcome>,
-    /// La ultima partida que termino. Si todavia no tiene resultado se sigue
-    /// buscando: el bloque de fin queda disponible un rato en el lobby.
+    /// The last match that ended. If it still has no result we keep looking:
+    /// the end-of-game block stays available for a while in the lobby.
     last_match: Option<Outcome>,
 }
 
@@ -133,7 +133,7 @@ impl LolTracker {
         self.phase.is_none() && self.current.is_none() && self.last_match.is_none()
     }
 
-    /// `lockfile_hint`: ruta deducida del proceso del cliente, si se pudo.
+    /// `lockfile_hint`: path derived from the client process, when possible.
     pub fn poll(&mut self, lockfile_hint: Option<PathBuf>, diag: &mut Diagnostics) -> Snapshot {
         if let Some(obs) = self.observe(lockfile_hint, diag) {
             self.advance(obs, diag);
@@ -213,7 +213,7 @@ impl LolTracker {
                         ),
                     ),
                 },
-                // Normal mientras se calculan las estadisticas.
+                // Normal while the stats are still being computed.
                 Fetch::NotFound => {}
                 Fetch::Failed(e) => {
                     diag.status(SCOPE, "eog", Level::Warning, format!("could not read end-of-game block: {e}"))
@@ -224,7 +224,7 @@ impl LolTracker {
         Some(obs)
     }
 
-    /// Avanza la maquina de estados con una lectura del cliente.
+    /// Advances the state machine with one reading of the client.
     fn advance(&mut self, obs: Observation, diag: &mut Diagnostics) {
         let phase = normalize_phase(&obs.raw_phase);
         match phase {
@@ -243,7 +243,7 @@ impl LolTracker {
                 }
             }
             "post_game" => {
-                // El agente arranco con la pantalla de fin ya abierta.
+                // The agent started with the end screen already open.
                 if self.current.is_none() {
                     if let Some(id) = obs.game_id.clone() {
                         self.current = Some(Outcome { id, won: None });
@@ -307,9 +307,9 @@ fn describe(v: &Value) -> String {
     }
 }
 
-/// Carpeta de instalacion -> lockfile. `levels_up` es cuantas carpetas subir
-/// desde la del ejecutable: el cliente vive en la raiz de la instalacion y el
-/// juego en `Game\`.
+/// Install folder -> lockfile. `levels_up` is how many folders to climb from
+/// the executable's folder: the client lives at the root of the install and
+/// the game in `Game\`.
 pub fn lockfile_from_exe(exe: &Path, levels_up: usize) -> Option<PathBuf> {
     let mut dir = exe.parent()?;
     for _ in 0..levels_up {
@@ -323,7 +323,7 @@ pub fn lockfile_from_exe(exe: &Path, levels_up: usize) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 //
 // Naming: [method]_when_[scenario]_[expected_result]
-// No tocan la red ni el cliente real: las respuestas se arman a mano.
+// They touch neither the network nor the real client: responses are built by hand.
 
 #[cfg(test)]
 mod tests {
@@ -357,7 +357,7 @@ mod tests {
         assert_eq!(normalize_phase("InProgress"), "in_game");
         assert_eq!(normalize_phase("Reconnect"), "in_game");
         assert_eq!(normalize_phase("EndOfGame"), "post_game");
-        assert_eq!(normalize_phase("AlgoNuevo"), "unknown");
+        assert_eq!(normalize_phase("SomethingNew"), "unknown");
     }
 
     // --- parsers ---
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn parse_eog_result_when_nobody_won_returns_none() {
-        // Remake: ningun equipo gana, mejor no inventar un resultado.
+        // Remake: no team wins, better not to invent a result.
         let eog = json!({
             "gameId": 99,
             "localPlayer": { "teamId": 100, "stats": { "WIN": 0, "LOSE": 0 } },
@@ -422,9 +422,9 @@ mod tests {
 
     #[test]
     fn lockfile_from_exe_walks_up_from_the_game_folder() {
-        let client = Path::new("D:\\Juegos\\League of Legends\\LeagueClientUx.exe");
-        let game = Path::new("D:\\Juegos\\League of Legends\\Game\\League of Legends.exe");
-        let expected = PathBuf::from("D:\\Juegos\\League of Legends\\lockfile");
+        let client = Path::new("D:\\Games\\League of Legends\\LeagueClientUx.exe");
+        let game = Path::new("D:\\Games\\League of Legends\\Game\\League of Legends.exe");
+        let expected = PathBuf::from("D:\\Games\\League of Legends\\lockfile");
         assert_eq!(lockfile_from_exe(client, 0), Some(expected.clone()));
         assert_eq!(lockfile_from_exe(game, 1), Some(expected));
     }
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn advance_when_champ_select_does_not_create_match() {
-        // Un dodge en seleccion de campeones no debe dejar una prediction colgada.
+        // A dodge in champion select must not leave a prediction hanging.
         let (t, _) = run(&[obs("ChampSelect", Some("55"), None)]);
         assert_eq!(t.snapshot().match_id, None);
     }
@@ -484,8 +484,8 @@ mod tests {
 
     #[test]
     fn advance_when_end_screen_was_skipped_finds_result_from_lobby() {
-        // "Jugar de nuevo" salta la pantalla de fin antes de la consulta: el
-        // resultado igual llega desde el lobby.
+        // "Play again" skips the end screen before the next poll: the result
+        // still arrives from the lobby.
         let (mut t, _) = run(&[obs("InProgress", Some("55"), None), obs("Lobby", None, None)]);
         assert!(t.needs_result());
         let mut d = Diagnostics::new();

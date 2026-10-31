@@ -24,15 +24,15 @@ import { BotApiService } from '../../services/bot-api';
               <span class="status-pill"
                 [class.ok]="s.riot.lol.configured && !s.riot.lol.key_dead"
                 [class.warn]="!s.riot.lol.configured || s.riot.lol.key_dead">
-                @if (s.riot.lol.key_dead) { Key expirada }
-                @else if (s.riot.lol.configured) { Configurado }
-                @else { No configurado }
+                @if (s.riot.lol.key_dead) { Key expired }
+                @else if (s.riot.lol.configured) { Configured }
+                @else { Not configured }
               </span>
             </div>
             @if (s.riot.lol.key_dead) {
               <p class="hint">
                 <mat-icon class="hint-icon">warning</mat-icon>
-                La API key de Riot expiró. Renovar en developer.riotgames.com
+                The Riot API key expired. Renew it at developer.riotgames.com
               </p>
             }
           </div>
@@ -46,7 +46,7 @@ import { BotApiService } from '../../services/bot-api';
               <span class="status-pill"
                 [class.ok]="s.riot.valorant.configured"
                 [class.warn]="!s.riot.valorant.configured">
-                {{ s.riot.valorant.configured ? 'Configurado (HenrikDev)' : 'No configurado' }}
+                {{ s.riot.valorant.configured ? 'Configured (HenrikDev)' : 'Not configured' }}
               </span>
             </div>
           </div>

@@ -16,7 +16,7 @@ import { BotApiService } from '../../services/bot-api';
           <mat-icon mat-card-avatar class="card-icon">currency_exchange</mat-icon>
           <mat-card-title>Prediction</mat-card-title>
           <mat-card-subtitle>
-            @if (s.prediction) { Activa } @else { Sin prediction activa }
+            @if (s.prediction) { Active } @else { No active prediction }
           </mat-card-subtitle>
         </mat-card-header>
         <mat-card-content>
@@ -33,7 +33,7 @@ import { BotApiService } from '../../services/bot-api';
               <span class="label">Match key</span>
               <span class="value mono small">{{ pred.match_key }}</span>
             </div>
-            <div class="outcomes-title">Opciones</div>
+            <div class="outcomes-title">Outcomes</div>
             <div class="outcomes">
               @for (entry of pred.outcomes | keyvalue; track entry.key) {
                 <div class="outcome-chip">
@@ -45,7 +45,7 @@ import { BotApiService } from '../../services/bot-api';
           } @else {
             <div class="no-pred">
               <mat-icon>radio_button_unchecked</mat-icon>
-              <span>No hay ninguna prediction activa registrada</span>
+              <span>No active prediction recorded</span>
             </div>
           }
         </mat-card-content>
