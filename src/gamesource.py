@@ -32,6 +32,17 @@ PRIORITY = {"manual": 30, "agent": 20, "discord": 10}
 # Cuántos segundos dura la fuente manual antes de expirar (4 horas).
 MANUAL_STALE_AFTER = 4 * 3600
 
+# Fases del cliente local (vocabulario comun del agente) en las que hay una
+# partida en juego y todavia tiene sentido abrir una prediction. LoL no llega
+# a reportar "pregame": un dodge en seleccion de campeones no abre nada.
+LIVE_PHASES = {"pregame", "in_game"}
+
+# Fuente de estado local que el agente reporta para cada juego.
+LOCAL_SOURCE = {"league of legends": "lcu", "valorant": "presence"}
+
+# Twitch admite una sola prediction abierta (activa o bloqueada) por canal.
+OPEN_PREDICTION = {"ACTIVE", "LOCKED"}
+
 
 @dataclass
 class Report:
@@ -73,6 +84,7 @@ class GameArbiter:
         self._pending: asyncio.Task[None] | None = None
         self._prediction_result_task: asyncio.Task[None] | None = None
         self._last_applied: str | None = None
+        self._last_skip: str | None = None
 
     # ------------------------------------------------------------------
     def sources(self) -> dict[str, Report]:
@@ -116,9 +128,14 @@ class GameArbiter:
         )
 
         if previous is not None and previous.game == game and not previous.stale and not force:
-            # Si solo cambia el match_id (nueva partida con mismo juego), reprogramamos.
-            if match_id and previous.match_id != match_id:
-                log.debug("Source '%s' reports new match_id %r", source, match_id)
+            # Mismo juego, pero la partida cambio: empezo, termino o ya se sabe
+            # el resultado. Antes solo se reaccionaba a un match_id nuevo, asi
+            # que el fin de una partida pasaba desapercibido.
+            if previous.match_id != match_id or previous.metadata != metadata:
+                log.debug(
+                    "Source '%s' reports match change %r -> %r",
+                    source, previous.match_id, match_id,
+                )
                 self._schedule(self._debounce_for(source))
             return
 
@@ -229,9 +246,13 @@ class GameArbiter:
                 return
 
             active = await self.helix.get_predictions(self.broadcaster_id)
-            if any(prediction.get("status") == "ACTIVE" for prediction in active):
+            if any(prediction.get("status") in OPEN_PREDICTION for prediction in active):
+                # Una bloqueada tambien cuenta: si la anterior quedo sin
+                # resolver, Twitch rechaza la nueva, y sin guardar la clave se
+                # reintentaba (y fallaba) en cada pasada.
                 if self.state is not None:
                     await self.state.set("prediction_created_key", match_key)
+                self._skip("a prediction is already open on Twitch; resolve it with !vwin / !vloss")
                 return
             prediction = await self.helix.create_prediction(
                 self.broadcaster_id,
@@ -255,6 +276,7 @@ class GameArbiter:
                 )
                 await self.state.set("prediction_created_key", match_key)
             log.info("Prediction created for %s (id %s)", game_name, prediction.get("id", "?"))
+            self._last_skip = None
             if self.announce and cfg.autocat_announce:
                 await self.announce(
                     cfg.say_as(
@@ -349,36 +371,81 @@ class GameArbiter:
         if current is None or current.get("status") not in {"ACTIVE", "LOCKED"}:
             await self.state.set("prediction_active", None)
 
+    def _skip(self, reason: str) -> None:
+        """Motivo para no crear una prediction, registrado una vez por motivo.
+
+        apply() corre cada minuto: sin esto el log repetia la misma linea.
+        """
+        if reason != self._last_skip:
+            log.info("Not creating prediction: %s", reason)
+            self._last_skip = reason
+
+    def _local(self, normalized_game: str) -> Report | None:
+        """Reporte del agente con estado leido del cliente local de este juego."""
+        source = next((s for g, s in LOCAL_SOURCE.items() if g in normalized_game), None)
+        report = self._reports.get("agent")
+        if source is None or report is None or report.stale:
+            return None
+        metadata = report.metadata or {}
+        if metadata.get("source") != source or not metadata.get("phase"):
+            return None
+        return report
+
+    def _local_result(self, normalized_game: str, match_id: str) -> bool | None:
+        """Resultado de una partida segun el cliente local, si ya se sabe."""
+        report = self._local(normalized_game)
+        if report is None:
+            return None
+        metadata = report.metadata or {}
+        last = metadata.get("last_match") or {}
+        candidates = []
+        if report.match_id == match_id:
+            candidates.append(metadata.get("result"))
+        if str(last.get("id", "")) == match_id:
+            candidates.append(last.get("result"))
+        for result in candidates:
+            if result == "win":
+                return True
+            if result == "loss":
+                return False
+        return None
+
     async def _prediction_match_key(self, normalized_game: str) -> str | None:
         if "league of legends" in normalized_game:
+            prefix = "lol"
+        elif "valorant" in normalized_game:
+            prefix = "valorant"
+        else:
+            return None
+
+        # 1. El cliente local, a traves del agente: sabe si hay partida sin
+        #    depender de ninguna API key. Si responde, manda.
+        local = self._local(normalized_game)
+        if local is not None:
+            phase = (local.metadata or {}).get("phase")
+            if phase in LIVE_PHASES and local.match_id:
+                return f"{prefix}:{local.match_id}"
+            self._skip(f"local client says {prefix} is not in a match (phase: {phase})")
+            return None
+
+        # 2. APIs publicas, cuando el agente no tiene datos del cliente.
+        if prefix == "lol":
             if self.lol is None or not self.lol.configured:
-                log.info("Not creating LoL prediction: active match validation missing")
+                self._skip("no local LoL data and the Riot API is unavailable (key missing or expired)")
                 return None
             game_id = await self.lol.active_game_id()
             if not game_id:
-                log.info("Not creating LoL prediction: account is not in a match")
+                self._skip("Riot API says the account is not in a match")
                 return None
             return f"lol:{game_id}"
 
-        if "valorant" in normalized_game:
-            # Opcion 1: el daemon de Valorant (en la PC de la streamer) ya
-            # mando el match_id en el reporte del agente.
-            agent_report = self._reports.get("agent")
-            if agent_report and not agent_report.stale and agent_report.match_id:
-                return f"valorant:{agent_report.match_id}"
-
-            # Opcion 2: fallback para cuando el bot corre en la misma maquina.
-            if self.valorant is not None and self.valorant.local.configured:
-                match_id = await self.valorant.local.active_match_id()
-                if match_id:
-                    return f"valorant:{match_id}"
-
-            log.info(
-                "Not creating automatic Valorant prediction: "
-                "no active match reported (daemon not running or not in a match)"
-            )
-            return None
-
+        # Valorant no tiene API publica de partida en vivo: queda el cliente
+        # local del propio bot, para cuando corre en la misma PC que el juego.
+        if self.valorant is not None and self.valorant.local.configured:
+            match_id = await self.valorant.local.active_match_id()
+            if match_id:
+                return f"valorant:{match_id}"
+        self._skip("no local Valorant data (agent not reporting presence, or not in a match)")
         return None
 
     def _schedule_prediction_result(self) -> None:
@@ -425,9 +492,16 @@ class GameArbiter:
         game = str(prediction.get("game", ""))
         match_key = str(prediction.get("match_key", ""))
         if "league of legends" in game:
-            if self.lol is None or not match_key.startswith("lol:"):
+            if not match_key.startswith("lol:"):
                 return None
-            return await self.lol.match_won(match_key.removeprefix("lol:"))
+            game_id = match_key.removeprefix("lol:")
+            local = self._local_result("league of legends", game_id)
+            if local is not None:
+                log.info("LoL result from the local client: %s", "win" if local else "loss")
+                return local
+            if self.lol is not None and self.lol.configured:
+                return await self.lol.match_won(game_id)
+            return None
         if "valorant" in game:
             log.info(
                 "Not resolving Valorant prediction automatically: "
@@ -437,9 +511,23 @@ class GameArbiter:
         return None
 
     async def _check_lol_prediction_finished(self, prediction: dict[str, Any]) -> None:
-        """Detect a finished LoL game even when Discord still shows LoL."""
+        """Detect a finished LoL game even when the active game is still LoL."""
         match_key = str(prediction.get("match_key", ""))
-        if self.lol is None or not self.lol.configured or not match_key.startswith("lol:"):
+        if not match_key.startswith("lol:"):
+            return
+        game_id = match_key.removeprefix("lol:")
+
+        local = self._local("league of legends")
+        if local is not None:
+            if self._local_result("league of legends", game_id) is not None:
+                self._schedule_prediction_result()
+            elif local.match_id != game_id and self.lol is not None and self.lol.configured:
+                # Termino pero el cliente no dio el resultado (remake, cerro
+                # el cliente): que lo confirme la API publica.
+                self._schedule_prediction_result()
+            return
+
+        if self.lol is None or not self.lol.configured:
             return
         active_game_id = await self.lol.active_game_id()
         if active_game_id is None:

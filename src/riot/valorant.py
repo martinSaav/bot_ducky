@@ -7,16 +7,19 @@ La key se pide en su Discord y va en el header Authorization.
 Las respuestas se parsean de forma defensiva y con fallback de version,
 porque es una API de terceros que cambia sin previo aviso.
 
-Ademas, para saber si hay una partida activa, se lee la API local del
-cliente de Valorant (similar al LCU de LoL). El cliente escribe un lockfile
-cuando esta abierto; ese lockfile tiene el puerto y la contrasena para
-conectarse a https://127.0.0.1:{port}.
+Ademas, para saber si hay una partida activa, se lee la presencia local del
+cliente (/chat/v4/presences), cuando el bot corre en la misma PC que el juego.
+El cliente escribe un lockfile con el puerto y la contrasena para conectarse a
+https://127.0.0.1:{port}. En el uso normal esto lo hace el agente en la PC de
+la streamer; esta copia es el respaldo.
 """
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import ssl
+import time
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +56,51 @@ def _dig(data: Any, *path: str, default: Any = None) -> Any:
     return default if cur is None else cur
 
 
+_PHASES = {"MENUS": "menus", "PREGAME": "pregame", "INGAME": "in_game"}
+
+
+def _first(data: Any, *paths: tuple[str, ...]) -> Any:
+    """Primer valor no nulo entre varias rutas posibles dentro de un dict."""
+    for path in paths:
+        cur = data
+        for key in path:
+            cur = cur.get(key) if isinstance(cur, dict) else None
+        if cur is not None:
+            return cur
+    return None
+
+
+def decode_presence_private(encoded: Any) -> dict[str, Any] | None:
+    """Decodifica el campo `private` de una presencia (base64 con JSON)."""
+    if not isinstance(encoded, str) or not encoded:
+        return None
+    try:
+        padded = encoded.replace("-", "+").replace("_", "/") + "=" * (-len(encoded) % 4)
+        data = json.loads(base64.b64decode(padded))
+    except ValueError:  # binascii.Error, JSONDecodeError y UnicodeDecodeError lo son
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def parse_presence_phase(private: Any) -> str | None:
+    """Fase de la partida en la presencia privada: menus, pregame o in_game.
+
+    Riot reestructuro la presencia: el formato viejo es plano
+    (`sessionLoopState`) y el nuevo agrupa por objeto (`matchPresenceData`).
+    Se prueban los dos. Un estado desconocido se devuelve tal cual.
+    """
+    raw = _first(
+        private,
+        ("matchPresenceData", "sessionLoopState"),
+        ("sessionLoopState",),
+        ("partyPresenceData", "partyOwnerSessionLoopState"),
+        ("partyOwnerSessionLoopState",),
+    )
+    if not isinstance(raw, str) or not raw:
+        return None
+    return _PHASES.get(raw.upper(), raw)
+
+
 class ValorantLocalClient:
     """Accede a la API local del cliente de Valorant via lockfile.
 
@@ -63,6 +111,7 @@ class ValorantLocalClient:
     def __init__(self, session: aiohttp.ClientSession):
         self.session = session
         self._puuid: str | None = None
+        self._match_id: str | None = None
 
     @property
     def configured(self) -> bool:
@@ -108,23 +157,57 @@ class ValorantLocalClient:
             return None
         port, password = lf
         data = await self._local_get(port, password, "/chat/v1/session")
-        puuid = (data or {}).get("subject")
+        # El campo se llama `puuid`; algunas versiones viejas usaban `subject`.
+        puuid = (data or {}).get("puuid") or (data or {}).get("subject")
         if puuid:
             self._puuid = puuid
         return puuid
 
-    async def active_match_id(self) -> str | None:
-        """Devuelve el matchID de la partida activa, o None si no esta en partida."""
+    async def match_phase(self) -> str | None:
+        """Fase de la partida segun la presencia local, o None si no se pudo leer."""
         lf = self._read_lockfile()
         if lf is None:
-            self._puuid = None  # el cliente se cerro; limpiamos el cache
             return None
         port, password = lf
         puuid = await self.local_puuid()
         if not puuid:
             return None
-        data = await self._local_get(port, password, f"/core-game/v1/player/{puuid}")
-        return (data or {}).get("matchID") or None
+        data = await self._local_get(port, password, "/chat/v4/presences")
+        presences = (data or {}).get("presences") or []
+        own = next(
+            (
+                p for p in presences
+                if isinstance(p, dict)
+                and p.get("puuid") == puuid
+                and p.get("product") == "valorant"
+            ),
+            None,
+        )
+        private = decode_presence_private((own or {}).get("private"))
+        return parse_presence_phase(private) if private else None
+
+    async def active_match_id(self) -> str | None:
+        """Clave de la partida activa segun la presencia local, o None.
+
+        La presencia no trae un ID de partida, asi que se crea una clave al
+        salir de los menus y se suelta al volver, igual que hace el agente.
+        Antes se pedia /core-game a localhost, donde ese endpoint no existe:
+        vive en los servidores remotos de Riot y siempre devolvia 404.
+        """
+        if self._read_lockfile() is None:
+            self._puuid = None  # el cliente se cerro; limpiamos el cache
+            self._match_id = None
+            return None
+        phase = await self.match_phase()
+        if phase in ("pregame", "in_game"):
+            if self._match_id is None:
+                self._match_id = f"val-{time.time_ns() // 1_000_000}"
+            return self._match_id
+        if phase == "menus":
+            self._match_id = None
+            return None
+        # Sin lectura o con un estado desconocido no se toca la partida.
+        return self._match_id
 
 
 class ValorantClient:
