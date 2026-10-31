@@ -25,13 +25,23 @@ o la PC lo tiene apagado, el bot vuelve solo a la presencia de Discord después 
   "source": "agent",
   "game": "VALORANT",
   "exe": "VALORANT-Win64-Shipping.exe",
-  "match_id": "8b51c8b3-...",
-  "metadata": null,
+  "match_id": "val-1761867240000",
+  "metadata": {
+    "source": "presence",
+    "phase": "in_game",
+    "queue": "competitive",
+    "score": { "ally": 7, "enemy": 4 }
+  },
   "host": "PC-DE-CHAAR",
   "agent_version": "0.1.0",
-  "sent_at": "2026-09-09T22:16:19Z"
+  "sent_at": "2026-10-30T23:34:00Z"
 }
 ```
+
+`match_id` y `metadata` solo aparecen en Valorant y League, y salen del cliente
+local de cada juego: en qué pantalla está, la partida en curso y, en LoL, quién
+ganó. El detalle de qué se consulta está en
+[`docs/diagrama_agente.md`](../docs/diagrama_agente.md).
 
 Eso es todo. **Funciona con lista blanca:** solo los juegos declarados en
 `agent.toml` pueden aparecer en ese campo. Cualquier otro programa abierto se
@@ -58,8 +68,13 @@ runtime — no hace falta instalar nada en la PC de destino).
 
 Si usás el toolchain `x86_64-pc-windows-gnu` de rustup sin Visual Studio, no
 necesitás compilador de C: las dependencias están elegidas para evitarlo. Por eso
-el tiempo se resuelve con llamadas a kernel32 y las consultas HTTPS a las APIs locales
-de Riot (Valorant y LoL) se delegan a PowerShell, evitando compilar dependencias de TLS pesadas en Rust.
+el tiempo se resuelve con llamadas a kernel32 y las consultas HTTPS a las APIs
+locales de Riot (Valorant y LoL) se delegan a `curl.exe`, que viene con Windows
+10/11: no hay que compilar una pila TLS en Rust.
+
+> Antes LoL usaba `Invoke-RestMethod -SkipCertificateCheck`, pero ese parámetro
+> solo existe en PowerShell 7 y `powershell.exe` es la 5.1. Fallaba siempre, en
+> silencio.
 
 ## Configurar
 
@@ -87,6 +102,9 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 Dice qué detecta ahora mismo y sale. Con un juego abierto tiene que nombrarlo.
+En Valorant y League además muestra lo que lee del cliente local (la fase, la
+partida en curso y cualquier problema con la API): es lo primero que hay que
+mirar si una prediction no se crea.
 
 ```bash
 ./twitch-game-agent.exe --scan
@@ -168,6 +186,7 @@ src/config.rs    lectura y validación de agent.toml
 src/detect.rs    enumeración de procesos y lista blanca
 src/report.rs    envío HTTP al bot
 src/clock.rs     fecha y hora vía kernel32, sin dependencias
-src/valorant.rs  extracción de partida activa vía Riot LCU API
-src/lol.rs       extracción de datos en vivo vía Live Client Data API
+src/local.rs     curl, lockfile, base64 y diagnósticos de las APIs locales
+src/valorant.rs  estado de partida desde la presencia local del Riot Client
+src/lol.rs       estado y resultado de partida desde el cliente local (LCU)
 ```

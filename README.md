@@ -405,14 +405,27 @@ por comas.
 
 Cuando detecta una partida de League of Legends o VALORANT, el bot crea una
 prediction de Twitch con las opciones `Gana` y `Pierde`. No crea otra mientras
-haya una activa y dura 5 minutos por defecto. En LoL confirma la partida contra
-Riot y usa su `gameId` como clave idempotente. En Valorant usa una sesión
-persistida del detector, porque la API de HenrikDev configurada en este proyecto
-no expone una partida activa con un ID comparable. Por eso Valorant no inicia
-predictions automáticamente al detectar que el juego está abierto. Para una
-partida real usá `!vgame`, y al terminar `!vwin` o `!vloss`; así nunca se usa
-una partida vieja para resolver el resultado. LoL se vincula automáticamente
-con mayor precisión por `gameId`.
+haya una abierta (activa o bloqueada) y dura 5 minutos por defecto.
+
+**El estado de la partida sale del cliente local del juego**, leído por el
+agente en la PC de la streamer. No depende de ninguna API key:
+
+| Juego | Se crea | Se resuelve |
+|---|---|---|
+| League of Legends | Al arrancar la partida (no en selección de campeones, por los dodges) | Con el resultado del cliente local |
+| Valorant | Al entrar a selección de agentes | A mano con `!vwin` / `!vloss` |
+
+Las APIs públicas quedan de respaldo, cuando el agente no tiene datos del
+cliente. En LoL, Spectator-V5 para saber si hay partida y Match-V5 para el
+resultado: usan el mismo `gameId` que el cliente local, así que no se duplica
+nada si el agente se cae a mitad de partida. Esas dos necesitan una key de Riot
+válida. Si no hay resultado por ningún lado, `!vwin` / `!vloss` resuelven
+cualquier prediction abierta, sea de LoL o de Valorant.
+
+`!vgame` sigue sirviendo para forzar una prediction de Valorant a mano.
+
+El detalle de qué consulta el agente en cada cliente está en
+[`docs/diagrama_agente.md`](docs/diagrama_agente.md).
 
 Corrida manual de clips, sin esperar al horario:
 
