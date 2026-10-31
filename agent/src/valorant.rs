@@ -1,48 +1,144 @@
-//! Deteccion de partida activa de Valorant via API local del cliente.
+//! Estado de partida de Valorant, leido de la presencia local del cliente.
 //!
-//! El cliente de Valorant escribe un lockfile cuando esta abierto. Ese
-//! lockfile contiene el puerto y la contrasena para conectarse a la API
-//! HTTPS local en https://127.0.0.1:{port}.
+//! Todo sale de la API local del Riot Client (127.0.0.1 + lockfile):
 //!
-//! Para evitar dependencias de TLS con el toolchain windows-gnu, las llamadas
-//! HTTPS se hacen via curl.exe, incluido en Windows moderno, aceptando el
-//! certificado auto-firmado del cliente local.
+//!   GET /chat/v1/session    -> PUUID de la cuenta logueada
+//!   GET /chat/v4/presences  -> presencias; la propia trae un campo `private`
+//!                              en base64 con el estado de la sesion de juego
+//!
+//! Antes se pedian /core-game y /pregame a esta misma API, pero esos
+//! endpoints viven en los servidores remotos de Riot (glz-*.a.pvp.net) y
+//! piden otra autenticacion. En localhost devuelven 404 siempre, y el agente
+//! lo leia como "no hay partida".
+//!
+//! La presencia no trae un ID de partida, asi que el agente crea uno propio
+//! cuando ella sale de los menus y lo suelta cuando vuelve. Alcanza para que
+//! el bot no cree dos predictions para la misma partida.
 
 use std::path::PathBuf;
-use std::process::Command;
-use std::sync::Mutex;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
-/// Cache del PUUID: no cambia entre sesiones de la misma cuenta.
-static CACHED_PUUID: Mutex<Option<String>> = Mutex::new(None);
-static DIAGNOSTICS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+use crate::local::{self, Diagnostics, Fetch, Level, Lockfile, Snapshot};
 
-fn diagnostic(message: impl Into<String>) {
-    let message = message.into();
-    let level = if message.starts_with("Could not")
-        || message.starts_with("Invalid")
-        || message.starts_with("No ")
-        || message.contains("failed")
-        || message.contains("HTTP")
-        || message.contains("returned no")
-        || message.contains("empty response")
-        || message.contains("not valid")
-    {
-        "WARNING"
-    } else {
-        "INFO"
-    };
-    if let Ok(mut diagnostics) = DIAGNOSTICS.lock() {
-        diagnostics.push(format!("[{level}] [valorant] {message}"));
+const SCOPE: &str = "valorant";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Phase {
+    Menus,
+    Pregame,
+    InGame,
+    Other(String),
+}
+
+impl Phase {
+    fn from_raw(raw: &str) -> Phase {
+        match raw.to_ascii_uppercase().as_str() {
+            "MENUS" => Phase::Menus,
+            "PREGAME" => Phase::Pregame,
+            "INGAME" => Phase::InGame,
+            _ => Phase::Other(raw.to_string()),
+        }
+    }
+
+    /// Vocabulario comun con el agente de LoL: es lo que lee el bot.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Phase::Menus => "menus",
+            Phase::Pregame => "pregame",
+            Phase::InGame => "in_game",
+            Phase::Other(raw) => raw,
+        }
     }
 }
 
-pub fn take_diagnostics() -> Vec<String> {
-    DIAGNOSTICS
-        .lock()
-        .map(|mut diagnostics| std::mem::take(&mut *diagnostics))
-        .unwrap_or_default()
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PresenceState {
+    pub phase: Option<Phase>,
+    pub queue: Option<String>,
+    pub ally: Option<i64>,
+    pub enemy: Option<i64>,
+}
+
+/// Primer valor no nulo entre varias rutas posibles.
+///
+/// Riot reestructuro la presencia privada: el formato viejo es plano
+/// (`sessionLoopState`) y el nuevo agrupa por objeto (`matchPresenceData`,
+/// `partyPresenceData`). Se prueban las dos para no depender de la version.
+fn first<'a>(v: &'a Value, paths: &[&[&str]]) -> Option<&'a Value> {
+    paths.iter().find_map(|path| {
+        let mut cur = v;
+        for key in *path {
+            cur = cur.get(*key)?;
+        }
+        (!cur.is_null()).then_some(cur)
+    })
+}
+
+pub fn parse_private(private: &Value) -> PresenceState {
+    let phase = first(
+        private,
+        &[
+            &["matchPresenceData", "sessionLoopState"],
+            &["sessionLoopState"],
+            &["partyPresenceData", "partyOwnerSessionLoopState"],
+            &["partyOwnerSessionLoopState"],
+        ],
+    )
+    .and_then(Value::as_str)
+    .map(Phase::from_raw);
+
+    let queue = first(
+        private,
+        &[&["matchPresenceData", "queueId"], &["queueId"], &["partyPresenceData", "queueId"]],
+    )
+    .and_then(Value::as_str)
+    .filter(|q| !q.is_empty())
+    .map(str::to_string);
+
+    let score = |field: &str| {
+        first(private, &[&["partyPresenceData", field], &["matchPresenceData", field], &[field]])
+            .and_then(Value::as_i64)
+    };
+
+    PresenceState {
+        phase,
+        queue,
+        ally: score("partyOwnerMatchScoreAllyTeam"),
+        enemy: score("partyOwnerMatchScoreEnemyTeam"),
+    }
+}
+
+/// Los campos de la presencia decodificada, para el log cuando no se
+/// encuentra el estado: asi la primera sesion real dice que ajustar.
+pub fn describe_keys(v: &Value) -> String {
+    let Some(obj) = v.as_object() else {
+        return "(not an object)".to_string();
+    };
+    let mut parts: Vec<String> = obj
+        .iter()
+        .map(|(k, val)| match val.as_object() {
+            Some(inner) => {
+                let keys: Vec<&str> = inner.keys().map(String::as_str).collect();
+                format!("{k}{{{}}}", keys.join(","))
+            }
+            None => k.clone(),
+        })
+        .collect();
+    parts.sort();
+    local::clip(&parts.join(", "), 600)
+}
+
+pub fn decode_private(b64: &str) -> Option<Value> {
+    serde_json::from_slice(&local::base64_decode(b64)?).ok()
+}
+
+/// La presencia propia de Valorant dentro de la respuesta de /chat/v4/presences.
+pub fn own_presence<'a>(presences: &'a Value, puuid: &str) -> Option<&'a Value> {
+    presences.get("presences")?.as_array()?.iter().find(|p| {
+        p.get("puuid").and_then(Value::as_str) == Some(puuid)
+            && p.get("product").and_then(Value::as_str) == Some("valorant")
+    })
 }
 
 fn lockfile_path() -> PathBuf {
@@ -57,197 +153,410 @@ fn lockfile_path() -> PathBuf {
         .join("lockfile")
 }
 
-/// Devuelve (puerto, contrasena) del lockfile, o None si Valorant no esta abierto.
-fn read_lockfile() -> Option<(u16, String)> {
-    let path = lockfile_path();
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            diagnostic(format!("Lockfile not found at {}: {}", path.display(), e));
-            return None;
-        }
-    };
-    // formato: name:pid:port:password:protocol
-    let parts: Vec<&str> = content.trim().splitn(6, ':').collect();
-    if parts.len() < 5 {
-        diagnostic(format!("Invalid lockfile format ({} parts): {:?}", parts.len(), content.trim()));
-        return None;
-    }
-    let port: u16 = match parts[2].parse() {
-        Ok(p) => p,
-        Err(e) => {
-            diagnostic(format!("Could not parse lockfile port '{}': {}", parts[2], e));
-            return None;
-        }
-    };
-    let password = parts[3].to_string();
-    diagnostic(format!("Lockfile loaded; local API port is {port}"));
-    Some((port, password))
+#[derive(Debug, Clone, PartialEq)]
+struct Finished {
+    id: String,
+    ally: Option<i64>,
+    enemy: Option<i64>,
 }
 
-/// Base64 sin dependencias externas.
-fn base64_encode(input: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
-    for chunk in input.chunks(3) {
-        let b0 = chunk[0] as usize;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
-        out.push(TABLE[b0 >> 2] as char);
-        out.push(TABLE[((b0 & 3) << 4) | (b1 >> 4)] as char);
-        out.push(if chunk.len() > 1 { TABLE[((b1 & 0xf) << 2) | (b2 >> 6)] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[b2 & 0x3f] as char } else { '=' });
-    }
-    out
-}
-
-/// Hace un GET HTTPS via curl, aceptando el certificado auto-firmado local.
-/// Devuelve el cuerpo JSON parseado, o None si fallo.
-fn curl_get(url: &str, auth_header: &str) -> Option<Value> {
-    let authorization = format!("Authorization: {auth_header}");
-    let output = match Command::new("curl.exe")
-        .args([
-            "--silent",
-            "--show-error",
-            "--insecure",
-            "--max-time",
-            "5",
-            "--header",
-            &authorization,
-            "--write-out",
-            "\n__HTTP_STATUS__:%{http_code}",
-            url,
-        ])
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
-            diagnostic(format!("Could not start curl.exe: {}", e));
-            return None;
-        }
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        diagnostic(format!(
-            "curl.exe failed for {} (exit code {}) | stderr: {} | stdout: {}",
-            url,
-            output.status.code().unwrap_or(-1),
-            stderr.trim(),
-            stdout.trim()
-        ));
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let marker = "__HTTP_STATUS__:";
-    let (body, status) = match stdout.rsplit_once(marker) {
-        Some((body, status)) => (body.trim(), status.trim()),
-        None => {
-            diagnostic(format!("curl returned no HTTP status for {url}"));
-            return None;
-        }
-    };
-    if status == "404" {
-        diagnostic(format!("{url} -> 404 (no active match at this endpoint)"));
-        return None;
-    }
-    if !status.starts_with('2') {
-        diagnostic(format!("{url} -> HTTP {status} | response: {body}"));
-        return None;
-    }
-    let trimmed = body;
-    if trimmed.is_empty() {
-        diagnostic(format!("{url} -> empty response"));
-        return None;
-    }
-    match serde_json::from_str(trimmed) {
-        Ok(v) => Some(v),
-        Err(e) => {
-            diagnostic(format!("Response from {url} is not valid JSON: {e} | raw: {}", &trimmed[..trimmed.len().min(120)]));
-            None
-        }
+fn score_json(ally: Option<i64>, enemy: Option<i64>) -> Value {
+    match (ally, enemy) {
+        (Some(a), Some(e)) => json!({ "ally": a, "enemy": e }),
+        _ => Value::Null,
     }
 }
 
-fn fetch_puuid(port: u16, auth: &str) -> Option<String> {
-    let url = format!("https://127.0.0.1:{port}/chat/v1/session");
-    let body = curl_get(&url, auth)?;
-    match body.get("subject").and_then(|v| v.as_str()) {
-        Some(s) => {
-            diagnostic(format!("PUUID received: {}...{}", &s[..s.len().min(8)], &s[s.len().saturating_sub(4)..]));
-            Some(s.to_string())
-        }
-        None => {
-            diagnostic(format!("/chat/v1/session response has no 'subject': {:?}", body));
-            None
-        }
+#[derive(Debug, Default)]
+pub struct ValorantTracker {
+    session: Option<Lockfile>,
+    puuid: Option<String>,
+    phase: Option<Phase>,
+    queue: Option<String>,
+    match_id: Option<String>,
+    ally: Option<i64>,
+    enemy: Option<i64>,
+    last_match: Option<Finished>,
+}
+
+impl ValorantTracker {
+    pub fn new() -> Self {
+        Self::default()
     }
-}
 
-fn fetch_core_match_id(port: u16, auth: &str, puuid: &str) -> Option<String> {
-    let url = format!("https://127.0.0.1:{port}/core-game/v1/player/{puuid}");
-    let body = curl_get(&url, auth)?;
-    let id = body.get("matchID")?.as_str()?;
-    if id.is_empty() { None } else { Some(id.to_string()) }
-}
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
 
-/// Fallback para cuando el jugador esta en seleccion de agentes (pregame).
-/// El endpoint de core-game devuelve 404 en ese estado; pregame tiene un
-/// matchID propio que sirve igualmente como clave unica de partida.
-fn fetch_pregame_match_id(port: u16, auth: &str, puuid: &str) -> Option<String> {
-    let url = format!("https://127.0.0.1:{port}/pregame/v1/players/{puuid}");
-    let body = curl_get(&url, auth)?;
-    let id = body.get("MatchID")?.as_str()?;
-    if id.is_empty() { None } else { Some(id.to_string()) }
-}
+    pub fn is_idle(&self) -> bool {
+        self.phase.is_none() && self.last_match.is_none() && self.session.is_none()
+    }
 
-/// Devuelve el matchID de la partida activa de Valorant, o None si:
-///  - El cliente no esta abierto (sin lockfile).
-///  - El jugador no esta en partida ni en seleccion de agentes.
-///  - No se pudo conectar a la API local.
-///
-/// Orden de consulta:
-///   1. core-game  -> partida en curso
-///   2. pregame    -> seleccion de agentes (core-game devuelve 404 en este estado)
-pub fn active_match_id() -> Option<String> {
-    let (port, password) = read_lockfile()?;
-    let auth = format!("Basic {}", base64_encode(format!("riot:{password}").as_bytes()));
-
-    // PUUID cacheado. Lo refrescamos si el lockfile cambio de sesion:
-    // señal de que la cuenta o el cliente se reinicio.
-    let puuid = {
-        CACHED_PUUID.lock().unwrap_or_else(|e| e.into_inner()).clone()
-    };
-    let puuid = match puuid {
-        Some(p) => {
-            diagnostic("Using cached PUUID");
-            p
+    pub fn poll(&mut self, diag: &mut Diagnostics) -> Snapshot {
+        // Si esta vez no se pudo leer la presencia, el estado anterior queda
+        // como estaba: un error pasajero no debe dar por terminada la partida.
+        if let Some(state) = self.read_presence(diag) {
+            self.advance(state, local::unix_millis(), diag);
         }
-        None => {
-            let p = fetch_puuid(port, &auth)?;
-            if let Ok(mut guard) = CACHED_PUUID.lock() {
-                *guard = Some(p.clone());
+        self.snapshot()
+    }
+
+    fn read_presence(&mut self, diag: &mut Diagnostics) -> Option<PresenceState> {
+        let lockfile = match local::read_lockfile(&lockfile_path()) {
+            Ok(l) => l,
+            Err(e) => {
+                diag.status(SCOPE, "client", Level::Warning, format!("Riot client lockfile unavailable: {e}"));
+                return None;
             }
-            p
+        };
+        if self.session.as_ref() != Some(&lockfile) {
+            // Cliente nuevo o reiniciado: la cuenta pudo haber cambiado.
+            self.puuid = None;
+            self.session = Some(lockfile.clone());
         }
-    };
+        let auth = lockfile.auth();
 
-    // 1. Intentar core-game (partida activa).
-    if let Some(id) = fetch_core_match_id(port, &auth, &puuid) {
-        diagnostic(format!("Match ID received from core-game: {}...{}", &id[..id.len().min(8)], &id[id.len().saturating_sub(4)..]));
-        return Some(id);
+        let puuid = match &self.puuid {
+            Some(p) => p.clone(),
+            None => {
+                let p = self.fetch_puuid(&lockfile, &auth, diag)?;
+                self.puuid = Some(p.clone());
+                p
+            }
+        };
+
+        let presences = match local::get(&lockfile.url("/chat/v4/presences"), Some(&auth)) {
+            Fetch::Ok(v) => v,
+            Fetch::NotFound => {
+                diag.status(SCOPE, "presence", Level::Warning, "/chat/v4/presences returned 404");
+                return None;
+            }
+            Fetch::Failed(e) => {
+                diag.status(SCOPE, "presence", Level::Warning, format!("could not read presences: {e}"));
+                return None;
+            }
+        };
+        let Some(own) = own_presence(&presences, &puuid) else {
+            diag.status(SCOPE, "presence", Level::Info, "no Valorant presence yet (game still loading?)");
+            return None;
+        };
+        let Some(private) = own.get("private").and_then(Value::as_str).and_then(decode_private) else {
+            diag.status(SCOPE, "presence", Level::Warning, "own presence has no decodable 'private' field");
+            return None;
+        };
+
+        let state = parse_private(&private);
+        if state.phase.is_none() {
+            diag.status(
+                SCOPE,
+                "presence",
+                Level::Warning,
+                format!("game state not found in presence; fields: {}", describe_keys(&private)),
+            );
+            return None;
+        }
+        diag.status(SCOPE, "presence", Level::Info, "reading game state from local presence");
+        Some(state)
     }
 
-    // 2. Fallback: seleccion de agentes (pregame).
-    match fetch_pregame_match_id(port, &auth, &puuid) {
-        Some(id) => {
-            diagnostic(format!("Match ID received from pregame: {}...{}", &id[..id.len().min(8)], &id[id.len().saturating_sub(4)..]));
-            Some(id)
+    fn fetch_puuid(&self, lockfile: &Lockfile, auth: &str, diag: &mut Diagnostics) -> Option<String> {
+        let body = match local::get(&lockfile.url("/chat/v1/session"), Some(auth)) {
+            Fetch::Ok(body) => body,
+            Fetch::NotFound => {
+                diag.status(SCOPE, "client", Level::Info, "Riot client is open but not signed in yet");
+                return None;
+            }
+            Fetch::Failed(e) => {
+                diag.status(SCOPE, "client", Level::Warning, format!("could not read chat session: {e}"));
+                return None;
+            }
+        };
+        // El campo se llama `puuid`; algunas versiones viejas usaban `subject`.
+        let puuid = body
+            .get("puuid")
+            .or_else(|| body.get("subject"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty());
+        match puuid {
+            Some(p) => {
+                diag.status(
+                    SCOPE,
+                    "client",
+                    Level::Info,
+                    format!("signed in as {} (local API on port {})", local::mask(p), lockfile.port),
+                );
+                Some(p.to_string())
+            }
+            None => {
+                diag.status(
+                    SCOPE,
+                    "client",
+                    Level::Warning,
+                    format!("chat session has no puuid: {}", local::clip(&body.to_string(), 300)),
+                );
+                None
+            }
         }
-        None => {
-            diagnostic("No match ID found in core-game or pregame (menu or lobby)");
-            None
+    }
+
+    /// Avanza la maquina de estados con una lectura de la presencia.
+    fn advance(&mut self, state: PresenceState, now_ms: u128, diag: &mut Diagnostics) {
+        let phase = state.phase.unwrap_or_else(|| Phase::Other("unknown".into()));
+        match &phase {
+            Phase::Pregame | Phase::InGame => {
+                if self.match_id.is_none() {
+                    let id = format!("val-{now_ms}");
+                    diag.event(SCOPE, Level::Info, format!("match started ({}), key {id}", phase.as_str()));
+                    self.match_id = Some(id);
+                    self.ally = None;
+                    self.enemy = None;
+                }
+                if state.ally.is_some() && state.enemy.is_some() {
+                    self.ally = state.ally;
+                    self.enemy = state.enemy;
+                }
+            }
+            Phase::Menus => {
+                if let Some(id) = self.match_id.take() {
+                    let shown = match (self.ally, self.enemy) {
+                        (Some(a), Some(e)) => format!("final score {a}-{e}"),
+                        _ => "final score unknown".to_string(),
+                    };
+                    diag.event(SCOPE, Level::Info, format!("match {id} ended, {shown}"));
+                    self.last_match = Some(Finished { id, ally: self.ally, enemy: self.enemy });
+                    self.ally = None;
+                    self.enemy = None;
+                }
+            }
+            // Un estado que no conocemos no termina ni empieza nada: mejor
+            // perder una prediction que inventar el fin de una partida.
+            Phase::Other(_) => {}
         }
+        self.phase = Some(phase);
+        self.queue = state.queue;
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        let Some(phase) = &self.phase else {
+            return Snapshot::default();
+        };
+        let mut meta = json!({ "source": "presence", "phase": phase.as_str() });
+        if let Some(queue) = &self.queue {
+            meta["queue"] = json!(queue);
+        }
+        if self.match_id.is_some() {
+            let score = score_json(self.ally, self.enemy);
+            if !score.is_null() {
+                meta["score"] = score;
+            }
+        }
+        if let Some(f) = &self.last_match {
+            meta["last_match"] = json!({ "id": f.id, "score": score_json(f.ally, f.enemy) });
+        }
+        Snapshot {
+            match_id: self.match_id.clone(),
+            metadata: Some(meta),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+//
+// Naming: [method]_when_[scenario]_[expected_result]
+// No tocan la red ni el cliente real: la presencia se arma a mano.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(phase: &str, ally: Option<i64>, enemy: Option<i64>) -> PresenceState {
+        PresenceState {
+            phase: Some(Phase::from_raw(phase)),
+            queue: Some("competitive".into()),
+            ally,
+            enemy,
+        }
+    }
+
+    // --- parse_private ---
+
+    #[test]
+    fn parse_private_when_flat_format_reads_state_queue_and_score() {
+        let p = json!({
+            "sessionLoopState": "INGAME",
+            "queueId": "competitive",
+            "partyOwnerMatchScoreAllyTeam": 7,
+            "partyOwnerMatchScoreEnemyTeam": 4
+        });
+        let s = parse_private(&p);
+        assert_eq!(s.phase, Some(Phase::InGame));
+        assert_eq!(s.queue.as_deref(), Some("competitive"));
+        assert_eq!((s.ally, s.enemy), (Some(7), Some(4)));
+    }
+
+    #[test]
+    fn parse_private_when_nested_format_reads_state_queue_and_score() {
+        let p = json!({
+            "matchPresenceData": { "sessionLoopState": "PREGAME", "queueId": "unrated" },
+            "partyPresenceData": {
+                "partyOwnerMatchScoreAllyTeam": 0,
+                "partyOwnerMatchScoreEnemyTeam": 0
+            }
+        });
+        let s = parse_private(&p);
+        assert_eq!(s.phase, Some(Phase::Pregame));
+        assert_eq!(s.queue.as_deref(), Some("unrated"));
+        assert_eq!((s.ally, s.enemy), (Some(0), Some(0)));
+    }
+
+    #[test]
+    fn parse_private_when_state_missing_returns_no_phase() {
+        let s = parse_private(&json!({ "isValid": true, "partyId": "x" }));
+        assert_eq!(s.phase, None);
+    }
+
+    #[test]
+    fn parse_private_when_queue_is_empty_string_returns_none() {
+        let s = parse_private(&json!({ "sessionLoopState": "MENUS", "queueId": "" }));
+        assert_eq!(s.queue, None);
+    }
+
+    #[test]
+    fn phase_from_raw_when_unknown_keeps_the_raw_value() {
+        assert_eq!(Phase::from_raw("REPLAY"), Phase::Other("REPLAY".into()));
+        assert_eq!(Phase::from_raw("REPLAY").as_str(), "REPLAY");
+    }
+
+    // --- decode_private / own_presence ---
+
+    #[test]
+    fn decode_private_when_valid_base64_json_returns_value() {
+        let encoded = local::base64_encode(br#"{"sessionLoopState":"INGAME"}"#);
+        assert_eq!(decode_private(&encoded), Some(json!({ "sessionLoopState": "INGAME" })));
+    }
+
+    #[test]
+    fn decode_private_when_not_json_returns_none() {
+        assert_eq!(decode_private(&local::base64_encode(b"no es json")), None);
+    }
+
+    #[test]
+    fn own_presence_when_present_returns_own_valorant_entry() {
+        let presences = json!({ "presences": [
+            { "puuid": "friend", "product": "valorant", "private": "a" },
+            { "puuid": "me", "product": "league_of_legends", "private": "b" },
+            { "puuid": "me", "product": "valorant", "private": "c" }
+        ]});
+        let own = own_presence(&presences, "me").expect("debe encontrar la propia");
+        assert_eq!(own["private"], "c");
+    }
+
+    #[test]
+    fn own_presence_when_only_friends_returns_none() {
+        let presences = json!({ "presences": [{ "puuid": "friend", "product": "valorant" }] });
+        assert!(own_presence(&presences, "me").is_none());
+    }
+
+    // --- advance / snapshot ---
+
+    #[test]
+    fn advance_when_menus_has_no_match() {
+        let mut t = ValorantTracker::new();
+        let mut d = Diagnostics::new();
+        t.advance(state("MENUS", None, None), 1, &mut d);
+        let s = t.snapshot();
+        assert_eq!(s.match_id, None);
+        assert_eq!(s.metadata.unwrap()["phase"], "menus");
+    }
+
+    #[test]
+    fn advance_when_entering_pregame_creates_match_key() {
+        let mut t = ValorantTracker::new();
+        let mut d = Diagnostics::new();
+        t.advance(state("MENUS", None, None), 1, &mut d);
+        t.advance(state("PREGAME", None, None), 1000, &mut d);
+        let s = t.snapshot();
+        assert_eq!(s.match_id.as_deref(), Some("val-1000"));
+        assert_eq!(s.metadata.unwrap()["phase"], "pregame");
+    }
+
+    #[test]
+    fn advance_when_pregame_becomes_ingame_keeps_the_same_key() {
+        let mut t = ValorantTracker::new();
+        let mut d = Diagnostics::new();
+        t.advance(state("PREGAME", None, None), 1000, &mut d);
+        t.advance(state("INGAME", Some(0), Some(0)), 2000, &mut d);
+        t.advance(state("INGAME", Some(3), Some(1)), 3000, &mut d);
+        let s = t.snapshot();
+        assert_eq!(s.match_id.as_deref(), Some("val-1000"));
+        assert_eq!(s.metadata.unwrap()["score"], json!({ "ally": 3, "enemy": 1 }));
+    }
+
+    #[test]
+    fn advance_when_back_to_menus_ends_match_with_final_score() {
+        let mut t = ValorantTracker::new();
+        let mut d = Diagnostics::new();
+        t.advance(state("INGAME", Some(12), Some(10)), 1000, &mut d);
+        t.advance(state("INGAME", Some(13), Some(10)), 2000, &mut d);
+        t.advance(state("MENUS", None, None), 3000, &mut d);
+        let s = t.snapshot();
+        assert_eq!(s.match_id, None);
+        let meta = s.metadata.unwrap();
+        assert_eq!(meta["last_match"]["id"], "val-1000");
+        assert_eq!(meta["last_match"]["score"], json!({ "ally": 13, "enemy": 10 }));
+        assert!(meta.get("score").is_none(), "fuera de partida no hay score en vivo");
+    }
+
+    #[test]
+    fn advance_when_next_match_starts_mints_a_new_key() {
+        let mut t = ValorantTracker::new();
+        let mut d = Diagnostics::new();
+        t.advance(state("INGAME", None, None), 1000, &mut d);
+        t.advance(state("MENUS", None, None), 2000, &mut d);
+        t.advance(state("PREGAME", None, None), 3000, &mut d);
+        assert_eq!(t.snapshot().match_id.as_deref(), Some("val-3000"));
+    }
+
+    #[test]
+    fn advance_when_state_is_unknown_does_not_end_the_match() {
+        let mut t = ValorantTracker::new();
+        let mut d = Diagnostics::new();
+        t.advance(state("INGAME", None, None), 1000, &mut d);
+        t.advance(state("REPLAY", None, None), 2000, &mut d);
+        assert_eq!(t.snapshot().match_id.as_deref(), Some("val-1000"));
+    }
+
+    #[test]
+    fn advance_when_score_missing_keeps_last_known_score() {
+        let mut t = ValorantTracker::new();
+        let mut d = Diagnostics::new();
+        t.advance(state("INGAME", Some(5), Some(5)), 1000, &mut d);
+        t.advance(state("INGAME", None, None), 2000, &mut d);
+        assert_eq!(t.snapshot().metadata.unwrap()["score"], json!({ "ally": 5, "enemy": 5 }));
+    }
+
+    #[test]
+    fn advance_logs_match_start_and_end_as_events() {
+        let mut t = ValorantTracker::new();
+        let mut d = Diagnostics::new();
+        t.advance(state("PREGAME", None, None), 1000, &mut d);
+        t.advance(state("MENUS", None, None), 2000, &mut d);
+        let logs = d.take();
+        assert!(logs.iter().any(|l| l.contains("match started (pregame), key val-1000")), "{logs:?}");
+        assert!(logs.iter().any(|l| l.contains("match val-1000 ended, final score unknown")), "{logs:?}");
+    }
+
+    #[test]
+    fn snapshot_when_never_read_returns_empty() {
+        assert_eq!(ValorantTracker::new().snapshot(), Snapshot::default());
+    }
+
+    #[test]
+    fn describe_keys_lists_nested_objects() {
+        let desc = describe_keys(&json!({ "b": 1, "a": { "y": 1, "x": 2 } }));
+        assert!(desc.starts_with("a{"), "{desc}");
+        assert!(desc.contains('b'), "{desc}");
     }
 }

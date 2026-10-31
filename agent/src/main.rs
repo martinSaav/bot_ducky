@@ -7,6 +7,7 @@
 mod clock;
 mod config;
 mod detect;
+mod local;
 mod lol;
 mod report;
 mod valorant;
@@ -53,8 +54,22 @@ fn main() {
     let mut detector = Detector::new(&cfg.games);
 
     if args.iter().any(|a| a == "--once") {
-        match detector.detect() {
-            Some(d) => println!("Detected: {} (process {})", d.game, d.exe),
+        // Muestra tambien lo que dice la API local del cliente: es lo primero
+        // que hay que mirar cuando una prediction no se crea.
+        let detected = detector.detect();
+        for line in detector.take_diagnostics() {
+            println!("  {line}");
+        }
+        match detected {
+            Some(d) => {
+                println!("Detected: {} (process {})", d.game, d.exe);
+                if let Some(id) = &d.match_id {
+                    println!("Active match: {id}");
+                }
+                if let Some(meta) = &d.metadata {
+                    println!("Match state: {meta}");
+                }
+            }
             None => println!("No configured game is running."),
         }
         return;
@@ -90,6 +105,9 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
         }
 
         let changed = !ever_sent || current != last_reported;
+        // El score de Valorant cambia ronda a ronda: eso se manda, pero el
+        // "Detected" solo se registra cuando cambia el juego o la partida.
+        let identity_changed = !ever_sent || identity(&current) != identity(&last_reported);
         let heartbeat_due = last_send.elapsed() >= heartbeat;
 
         // Un envio fallido deja `ever_sent` en false, asi el proximo tick
@@ -98,7 +116,7 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
                 match reporter.send(current.as_ref(), log.pending()) {
                 Ok(()) => {
                         log.clear_pending();
-                    if changed {
+                    if identity_changed {
                         match &current {
                             Some(d) => {
                                 let match_part = d.match_id.as_deref()
@@ -132,6 +150,11 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
 
         std::thread::sleep(poll);
     }
+}
+
+/// Lo que identifica un reporte para el log: juego, ejecutable y partida.
+fn identity(d: &Option<Detected>) -> Option<(&str, &str, Option<&str>)> {
+    d.as_ref().map(|d| (d.game.as_str(), d.exe.as_str(), d.match_id.as_deref()))
 }
 
 fn scan() {
@@ -191,7 +214,9 @@ impl<'a> Logger<'a> {
     }
 
     fn raw(&mut self, msg: &str) {
-        let (level, message) = if let Some(message) = msg.strip_prefix("[WARNING] ") {
+        let (level, message) = if let Some(message) = msg.strip_prefix("[INFO] ") {
+            ("INFO", message)
+        } else if let Some(message) = msg.strip_prefix("[WARNING] ") {
             ("WARNING", message)
         } else if let Some(message) = msg.strip_prefix("[ERROR] ") {
             ("ERROR", message)

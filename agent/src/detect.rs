@@ -3,15 +3,20 @@
 //! Trabaja con lista blanca: solo los ejecutables declarados en agent.toml se
 //! comparan y solo esos pueden reportarse. El resto de los procesos se miran
 //! y se descartan en el acto, nunca salen de la maquina.
+//!
+//! Para Valorant y League ademas se lee el estado de la partida de la API
+//! local de cada cliente (ver `valorant.rs` y `lol.rs`).
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 use serde_json::Value;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System, UpdateKind};
 
 use crate::config::GameRule;
-use crate::valorant;
-use crate::lol;
+use crate::local::{Diagnostics, Snapshot};
+use crate::lol::{self, LolTracker};
+use crate::valorant::ValorantTracker;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Detected {
@@ -19,9 +24,9 @@ pub struct Detected {
     pub game: String,
     /// Ejecutable que disparo la coincidencia. Solo para el log.
     pub exe: String,
-    /// ID de la partida activa (solo Valorant, via API local del cliente).
+    /// Partida activa: el gameId de LoL, o una clave propia en Valorant.
     pub match_id: Option<String>,
-    /// Datos en vivo (solo League of Legends, via Live Client Data API).
+    /// Estado de la partida segun el cliente local (fase, resultado, score).
     pub metadata: Option<Value>,
 }
 
@@ -32,9 +37,20 @@ struct Rule {
     processes: HashMap<String, String>,
 }
 
+/// Procesos del cliente de League, con cuantas carpetas hay que subir desde
+/// su ejecutable para llegar a la raiz de la instalacion (donde esta el lockfile).
+const LEAGUE_PROCESSES: [(&str, usize); 3] = [
+    ("leagueclientux.exe", 0),
+    ("leagueclient.exe", 0),
+    ("league of legends.exe", 1),
+];
+
 pub struct Detector {
     rules: Vec<Rule>,
     system: System,
+    valorant: ValorantTracker,
+    lol: LolTracker,
+    diag: Diagnostics,
 }
 
 impl Detector {
@@ -58,7 +74,13 @@ impl Detector {
             RefreshKind::new().with_processes(ProcessRefreshKind::new()),
         );
 
-        Self { rules, system }
+        Self {
+            rules,
+            system,
+            valorant: ValorantTracker::new(),
+            lol: LolTracker::new(),
+            diag: Diagnostics::new(),
+        }
     }
 
     /// Cuantos juegos distintos hay configurados.
@@ -66,11 +88,18 @@ impl Detector {
         self.rules.len()
     }
 
-    /// El juego de mayor prioridad que este corriendo, o None.
-    pub fn detect(&mut self) -> Option<Detected> {
+    fn refresh_names(&mut self) {
+        // `ProcessRefreshKind::new()` trae solo nombres. `refresh_processes`
+        // a secas sumaria CPU, memoria, disco y ruta de cada proceso, cada
+        // 5 segundos, en la PC donde ella esta jugando y transmitiendo.
         // `true` descarta los procesos muertos, si no la lista crece sola.
         self.system
-            .refresh_processes(ProcessesToUpdate::All, true);
+            .refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::new());
+    }
+
+    /// El juego de mayor prioridad que este corriendo, o None.
+    pub fn detect(&mut self) -> Option<Detected> {
+        self.refresh_names();
 
         let running: Vec<String> = self
             .system
@@ -79,21 +108,71 @@ impl Detector {
             .map(|p| p.name().to_string_lossy().to_lowercase())
             .collect();
 
-        let mut detected = self.select_winner(&running)?;
+        let Some(mut detected) = self.select_winner(&running) else {
+            self.leave_games(None);
+            return None;
+        };
 
-        let game_lower = detected.game.to_lowercase();
-        // Si el juego es Valorant, consultamos la API local para el match_id.
-        if game_lower.contains("valorant") {
-            detected.match_id = valorant::active_match_id();
-        } else if game_lower.contains("league of legends") {
-            detected.metadata = lol::live_data();
-        }
+        let game = detected.game.to_lowercase();
+        let snapshot = if game.contains("valorant") {
+            self.leave_games(Some("valorant"));
+            self.valorant.poll(&mut self.diag)
+        } else if game.contains("league of legends") {
+            self.leave_games(Some("lol"));
+            let hint = self.league_lockfile();
+            self.lol.poll(hint, &mut self.diag)
+        } else {
+            self.leave_games(None);
+            Snapshot::default()
+        };
 
+        detected.match_id = snapshot.match_id;
+        detected.metadata = snapshot.metadata;
         Some(detected)
     }
 
-    pub fn take_diagnostics(&self) -> Vec<String> {
-        valorant::take_diagnostics()
+    /// Al dejar de jugar un juego se olvida su estado: si vuelve mas tarde,
+    /// arranca de cero en vez de arrastrar una partida vieja.
+    fn leave_games(&mut self, keep: Option<&str>) {
+        if keep != Some("valorant") && !self.valorant.is_idle() {
+            self.valorant.reset();
+            self.diag.forget("valorant");
+        }
+        if keep != Some("lol") && !self.lol.is_idle() {
+            self.lol.reset();
+            self.diag.forget("lol");
+        }
+    }
+
+    /// Lockfile del cliente de League, deducido de la ruta de su ejecutable.
+    ///
+    /// La carpeta de instalacion cambia de PC en PC. Se pide la ruta solo del
+    /// proceso del cliente, no la de todos.
+    fn league_lockfile(&mut self) -> Option<PathBuf> {
+        for (name, levels_up) in LEAGUE_PROCESSES {
+            let pid = self
+                .system
+                .processes()
+                .iter()
+                .find(|(_, p)| p.name().to_string_lossy().eq_ignore_ascii_case(name))
+                .map(|(pid, _)| *pid);
+            let Some(pid) = pid else { continue };
+
+            self.system.refresh_processes_specifics(
+                ProcessesToUpdate::Some(&[pid]),
+                false,
+                ProcessRefreshKind::new().with_exe(UpdateKind::OnlyIfNotSet),
+            );
+            let exe = self.system.process(pid).and_then(|p| p.exe());
+            if let Some(path) = exe.and_then(|exe| lol::lockfile_from_exe(exe, levels_up)) {
+                return Some(path);
+            }
+        }
+        None
+    }
+
+    pub fn take_diagnostics(&mut self) -> Vec<String> {
+        self.diag.take()
     }
 
     /// Logica de seleccion pura: dado un slice de nombres de procesos (ya en
@@ -128,9 +207,7 @@ impl Detector {
     /// Solo lo usa `--scan`, que imprime en pantalla para poder averiguar el
     /// ejecutable de un juego nuevo. Nunca se envia por red.
     pub fn running_processes(&mut self) -> Vec<String> {
-        // `true` descarta los procesos muertos, si no la lista crece sola.
-        self.system
-            .refresh_processes(ProcessesToUpdate::All, true);
+        self.refresh_names();
         let mut names: Vec<String> = self
             .system
             .processes()
