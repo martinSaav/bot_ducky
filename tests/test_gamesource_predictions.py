@@ -220,6 +220,18 @@ class TestConfirmValorantPrediction:
         hx.create_prediction.assert_not_called()
         assert "activa" in result.lower()
 
+    async def test_confirmValorantPrediction_WhenTwitchHasLockedPrediction_ReturnsAlreadyActive(
+        self, hx, tmp_path
+    ):
+        # Twitch rejects a new prediction while a locked one is unresolved.
+        hx.get_predictions.return_value = [{"status": "LOCKED", "id": "twitch-pred"}]
+        arbiter = _make(tmp_path, hx)
+
+        result = await arbiter.confirm_valorant_prediction()
+
+        hx.create_prediction.assert_not_called()
+        assert "activa" in result.lower()
+
     async def test_confirmValorantPrediction_WhenNoState_ReturnsGuardarError(
         self, hx, tmp_path
     ):

@@ -60,7 +60,7 @@ def _cors_headers(request: web.Request) -> dict[str, str]:
 class AgentServer:
     def __init__(
         self,
-        arbiter: "GameArbiter",
+        arbiter: "GameArbiter | None",
         status_provider: "StatusProvider | None" = None,
     ):
         self.arbiter = arbiter
@@ -70,6 +70,10 @@ class AgentServer:
 
     # ------------------------------------------------------------------
     def _authorized(self, request: web.Request) -> bool:
+        if not cfg.agent_token:
+            # Without a token there is nothing to compare against: an empty
+            # "Bearer " header would otherwise match.
+            return False
         header = request.headers.get("Authorization", "")
         prefix = "Bearer "
         if not header.startswith(prefix):
@@ -81,6 +85,9 @@ class AgentServer:
         if not self._authorized(request):
             log.warning("Rejected report from %s: invalid token", request.remote)
             return web.json_response({"error": "invalid token"}, status=401)
+
+        if self.arbiter is None:
+            return web.json_response({"error": "agent endpoint disabled"}, status=503)
 
         if request.content_length and request.content_length > MAX_BODY:
             return web.json_response({"error": "body too large"}, status=413)
@@ -236,8 +243,14 @@ class AgentServer:
         tail = request.match_info.get("tail", "")
         # Try to serve the requested file; if it does not exist, return index.html
         # (Angular client-side routing).
-        if tail and (candidate := _DIST_DIR / tail).exists() and candidate.is_file():
-            return web.FileResponse(candidate)
+        if tail:
+            candidate = (_DIST_DIR / tail).resolve()
+            # This route has no auth: never serve anything outside the build
+            # (e.g. ../../data/tokens.json, or an absolute path).
+            if not candidate.is_relative_to(_DIST_DIR.resolve()):
+                return web.Response(text="Not found", status=404)
+            if candidate.is_file():
+                return web.FileResponse(candidate)
         index = _DIST_DIR / "index.html"
         if index.exists():
             return web.FileResponse(index)

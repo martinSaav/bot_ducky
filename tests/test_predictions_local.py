@@ -102,7 +102,7 @@ class TestReportReschedules:
 
 
 # ---------------------------------------------------------------------------
-# _prediction_match_key: local primero, publico despues
+# _prediction_match_key: local first, public APIs second
 # ---------------------------------------------------------------------------
 
 class TestMatchKey:
@@ -243,12 +243,44 @@ class TestLoLFinished:
 
 class TestPredictionFlow:
 
-    async def test_start_WhenLockedPredictionOpen_DoesNotCreateNorRetry(self, arbiter, mock_helix, mock_state, runtime_cfg):
+    async def test_start_WhenLockedPredictionOpen_DoesNotCreate(self, arbiter, mock_helix, mock_state, runtime_cfg):
         mock_helix.get_predictions = AsyncMock(return_value=[{"id": "old", "status": "LOCKED"}])
         arbiter._reports["agent"] = agent("League of Legends", "55", source="lcu", phase="in_game")
         await arbiter._maybe_start_prediction("League of Legends")
         mock_helix.create_prediction.assert_not_called()
-        assert mock_state.get("prediction_created_key") == "lol:55"
+
+    async def test_start_WhenOldPredictionClosesMidMatch_CreatesForCurrentMatch(
+        self, arbiter, mock_helix, mock_state, runtime_cfg
+    ):
+        # The previous prediction was still open when match 55 started. Once
+        # it is resolved, match 55 must still get its prediction.
+        mock_helix.get_predictions = AsyncMock(return_value=[{"id": "old", "status": "LOCKED"}])
+        arbiter._reports["agent"] = agent("League of Legends", "55", source="lcu", phase="in_game")
+        await arbiter._maybe_start_prediction("League of Legends")
+
+        mock_helix.get_predictions.return_value = []
+        await arbiter._maybe_start_prediction("League of Legends")
+
+        mock_helix.create_prediction.assert_awaited_once()
+        assert mock_state.get("prediction_active")["match_key"] == "lol:55"
+
+    async def test_resolve_WhenAMatchWasWaiting_ReappliesRightAway(
+        self, arbiter, mock_helix, mock_state, runtime_cfg
+    ):
+        # Without a new report nothing would call apply() again: resolving the
+        # old prediction has to retry the waiting match itself.
+        mock_helix.get_predictions = AsyncMock(return_value=[{"id": "old", "status": "LOCKED"}])
+        arbiter._reports["agent"] = agent("League of Legends", "55", source="lcu", phase="in_game")
+        await arbiter._maybe_start_prediction("League of Legends")
+        await mock_state.set("prediction_active", {
+            "match_key": "lol:54", "prediction_id": "old", "game": "league of legends",
+            "outcomes": {"gana": "o-win", "pierde": "o-loss"},
+        })
+        arbiter._schedule = MagicMock()
+
+        await arbiter.resolve_manual_prediction(True)
+
+        arbiter._schedule.assert_called_once_with(0)
 
     async def test_start_WhenSameMatchAlreadyCreated_DoesNotDuplicate(self, arbiter, mock_helix, mock_state, runtime_cfg):
         arbiter._reports["agent"] = agent("League of Legends", "55", source="lcu", phase="in_game")

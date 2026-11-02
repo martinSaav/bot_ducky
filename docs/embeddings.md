@@ -2,6 +2,9 @@
 
 How chat messages are stored, embedded in the background and searched semantically.
 
+Steps 1 and 2 run today. Step 3 is available as `EmbeddingWorker.search`, but no
+chat command calls it yet: `!resumen` samples the stored messages instead.
+
 ```mermaid
 sequenceDiagram
     participant T as Twitch (Chat)
@@ -32,7 +35,7 @@ sequenceDiagram
 
     %% Semantic search flow
     rect rgb(60, 30, 60)
-    Note over T,DB: 3. Semantic search (e.g. a command)
+    Note over T,DB: 3. Semantic search (EmbeddingWorker.search, not wired to a command yet)
     T->>B: Summary / search command
     B->>API: POST /embeddings (text to search)
     API-->>B: Returns the query vector

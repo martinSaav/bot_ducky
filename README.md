@@ -403,10 +403,13 @@ If PostgreSQL is active, it also stores the session in `stream_sessions` with
 its start, end, game, message count and summary.
 
 **Semantic summary with an LLM:** set `LLM_API_KEY` to a key compatible with the
-OpenAI API (e.g. Gemini). `!resumen` prefers the messages stored in PostgreSQL,
-using vector similarity search (`chat_embeddings`) when available, and falls
-back to the in-memory summary if the API fails or the key is empty. The client
-uses a 45-second timeout and retries with exponential backoff.
+OpenAI API (e.g. Gemini). `!resumen` prefers the messages stored in PostgreSQL
+(sampled evenly across the window when there are more than `LLM_MAX_MESSAGES`)
+and falls back to the in-memory summary if the API fails or the key is empty.
+The client uses a 45-second timeout and retries with exponential backoff.
+
+The embeddings in `chat_embeddings` are generated and stored, ready for semantic
+search (`EmbeddingWorker.search`), but no command uses them yet.
 
 **Persistence across restarts:** set `DATABASE_URL` to a PostgreSQL database
 with the `pgvector` extension installed. The worker stores the messages and

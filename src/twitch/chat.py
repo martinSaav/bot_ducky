@@ -143,12 +143,15 @@ class ChatClient:
         self._connected = asyncio.Event()
         self._stop = False
         self._auth_failed = False
+        # Messages being handled. Strong references keep asyncio from
+        # garbage-collecting a task that is still running.
+        self._handlers: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     async def send_raw(self, line: str) -> None:
         ws = self._ws
         if ws is None or ws.closed:
-            raise ConnectionError("Chat desconectado")
+            raise ConnectionError("Chat disconnected")
         await ws.send_str(line + "\r\n")
 
     async def say(self, text: str, reply_to: str | None = None) -> None:
@@ -224,7 +227,7 @@ class ChatClient:
             await self.send_raw(f"PONG :{trailing or 'tmi.twitch.tv'}")
             return
 
-        if command == "001":  # RPL_WELCOME: login aceptado
+        if command == "001":  # RPL_WELCOME: login accepted
             await self.send_raw(f"JOIN #{self.channel}")
             return
 
@@ -271,7 +274,14 @@ class ChatClient:
             )
             if message.author == self.nick:
                 return  # we do not react to our own messages
-            try:
-                await self.on_message(message)
-            except Exception:  # noqa: BLE001
-                log.exception("Error processing message from %s", message.author)
+            # In its own task: a slow command (!resumen calls an LLM) must not
+            # stop the loop from reading PINGs and the next messages.
+            task = asyncio.create_task(self._process(message), name="chat-message")
+            self._handlers.add(task)
+            task.add_done_callback(self._handlers.discard)
+
+    async def _process(self, message: ChatMessage) -> None:
+        try:
+            await self.on_message(message)
+        except Exception:  # noqa: BLE001
+            log.exception("Error processing message from %s", message.author)

@@ -83,7 +83,7 @@ impl Detector {
         }
     }
 
-    /// Cuantos juegos distintos hay configurados.
+    /// How many distinct games are configured.
     pub fn rule_count(&self) -> usize {
         self.rules.len()
     }

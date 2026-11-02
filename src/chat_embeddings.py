@@ -90,7 +90,7 @@ class EmbeddingWorker:
                 LIMIT $3
                 """,
                 seconds,
-                query_vec,
+                _vec_to_pg(query_vec),
                 limit,
             )
         # Re-sort chronologically so the LLM gets the thread in order.
@@ -112,7 +112,7 @@ class EmbeddingWorker:
             self._worker = None
 
     # ------------------------------------------------------------------
-    # Internos
+    # Internals
     # ------------------------------------------------------------------
 
     async def _ensure_schema(self) -> None:
@@ -233,7 +233,7 @@ class EmbeddingWorker:
                         )
                         return None
                     data = body.get("data") or []
-                    # Gemini devuelve [{index, embedding}, …]
+                    # Gemini returns [{index, embedding}, …]
                     sorted_data = sorted(data, key=lambda d: d.get("index", 0))
                     return [item["embedding"] for item in sorted_data]
             except (asyncio.TimeoutError, aiohttp.ClientError) as exc:

@@ -135,7 +135,13 @@ class PostgresChatHistory:
         ]
 
     async def flush(self) -> None:
-        """Wait until all queued messages have been inserted."""
+        """Wait until all queued messages have been inserted.
+
+        Without a worker (the database never connected) nothing consumes the
+        queue, and join() would wait forever.
+        """
+        if self._worker is None or self._worker.done():
+            return
         await self._queue.join()
 
     async def start_session(

@@ -59,18 +59,21 @@ class CategoryResolver:
         if key in self._ignore:
             return None
 
-        cache = self._cache()
-        cached = cache.get(key)
+        target = self._map.get(key, name)
+        # Keyed by what is looked up, not by the reported name: adding or
+        # changing an alias in game_map.json (then !recargar) gives a new key,
+        # so an old cached miss or wrong match no longer applies.
+        cache_key = _norm(target)
+
+        cached = self._cache().get(cache_key)
         if cached is not None:
             # False is stored for names we already know do not resolve.
             return cached or None
 
-        target = self._map.get(key, name)
-
         game = await self._lookup(target)
         # Failures are cached too: it avoids repeating the search on every
         # presence update from a program that is not a game.
-        await self.state.update("game_cache", {key: game or False})
+        await self.state.update("game_cache", {cache_key: game or False})
         if game:
             log.info("Category resolved: %r -> %s (id %s)", name, game["name"], game["id"])
         else:

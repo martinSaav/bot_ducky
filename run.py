@@ -146,6 +146,34 @@ async def monitor_stream(
             pass
 
 
+async def wait_for_exit(tasks: dict[str, asyncio.Task], stop: asyncio.Event) -> None:
+    """Waits until stop is set or a subsystem crashes.
+
+    A task that finishes cleanly is not a reason to shut down: db-reconnect,
+    for example, returns as soon as Postgres connects.
+    """
+    stop_task = asyncio.create_task(stop.wait(), name="stop")
+    names = {task: name for name, task in tasks.items()}
+    pending = set(tasks.values())
+    try:
+        while True:
+            done, pending = await asyncio.wait(
+                [*pending, stop_task], return_when=asyncio.FIRST_COMPLETED
+            )
+            pending.discard(stop_task)
+            if stop_task in done:
+                return
+            crashed = False
+            for task in done:
+                if not task.cancelled() and task.exception() is not None:
+                    log.error("Subsystem '%s' died: %r", names[task], task.exception())
+                    crashed = True
+            if crashed:
+                return
+    finally:
+        stop_task.cancel()
+
+
 def live_game_name(arbiter: GameArbiter) -> str:
     sources = arbiter.sources()
     games = [report.game for report in sources.values() if report.game and not report.stale]
@@ -254,7 +282,7 @@ async def main() -> int:
         if llm_summary.configured:
             log.info("LLM summary: active (%s)", cfg.llm_model)
 
-        # --- embeddings (opcional: requiere DB + LLM) ----------------------
+        # --- embeddings (optional: needs the DB and the LLM) ---------------
         embedding_worker: EmbeddingWorker | None = None
         if database_history is not None and cfg.llm_api_key:
             try:
@@ -328,7 +356,7 @@ async def main() -> int:
                     await status_provider.broadcaster.broadcast("chat", {
                         "author": message.display_name,
                         "text": message.text,
-                        "ts": __import__("time").time(),
+                        "ts": time.time(),
                     })
                 await registry.dispatch(message)
 
@@ -356,7 +384,7 @@ async def main() -> int:
         else:
             log.warning("Desktop agent: disabled (missing AGENT_TOKEN)")
             # The server still starts, for the dashboard.
-            agent_server = AgentServer(None, status_provider=status_provider)  # type: ignore[arg-type]
+            agent_server = AgentServer(None, status_provider=status_provider)
             await agent_server.start()
 
         # --- 1b. Discord presence (fallback) ------------------------------
@@ -394,7 +422,7 @@ async def main() -> int:
                 while not stop.is_set():
                     try:
                         await asyncio.wait_for(stop.wait(), timeout=delay)
-                        return  # stop fue activado
+                        return  # stop was set
                     except asyncio.TimeoutError:
                         pass
                     try:
@@ -453,16 +481,7 @@ async def main() -> int:
                 pass
 
         log.info("All systems up. Ctrl+C to stop.")
-        stop_task = asyncio.create_task(stop.wait(), name="stop")
-        done, _ = await asyncio.wait(
-            [*tasks.values(), stop_task], return_when=asyncio.FIRST_COMPLETED
-        )
-        stop_task.cancel()
-        for task in done:
-            if task.get_name() != "stop" and not task.cancelled():
-                exc = task.exception()
-                if exc:
-                    log.error("Subsystem '%s' died: %r", task.get_name(), exc)
+        await wait_for_exit(tasks, stop)
 
         log.info("Shutting down...")
         if agent_server is not None:

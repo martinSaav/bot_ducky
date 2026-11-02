@@ -88,6 +88,9 @@ class GameArbiter:
         self._prediction_result_task: asyncio.Task[None] | None = None
         self._last_applied: str | None = None
         self._last_skip: str | None = None
+        #: Match that could not get a prediction because another one was
+        #: still open on Twitch. Retried as soon as that one closes.
+        self._waiting_key: str | None = None
 
     # ------------------------------------------------------------------
     def sources(self) -> dict[str, Report]:
@@ -250,11 +253,10 @@ class GameArbiter:
 
             active = await self.helix.get_predictions(self.broadcaster_id)
             if any(prediction.get("status") in OPEN_PREDICTION for prediction in active):
-                # A locked one counts too: if the previous one was left
-                # unresolved, Twitch rejects the new one, and without storing the
-                # key it was retried (and failed) on every pass.
-                if self.state is not None:
-                    await self.state.set("prediction_created_key", match_key)
+                # A locked one counts too: Twitch rejects a new prediction while
+                # the previous one is unresolved. The key is not stored, so this
+                # match still gets its prediction once that one closes.
+                self._waiting_key = match_key
                 self._skip("a prediction is already open on Twitch; resolve it with !vwin / !vloss")
                 return
             prediction = await self.helix.create_prediction(
@@ -280,6 +282,7 @@ class GameArbiter:
                 await self.state.set("prediction_created_key", match_key)
             log.info("Prediction created for %s (id %s)", game_name, prediction.get("id", "?"))
             self._last_skip = None
+            self._waiting_key = None
             if self.announce and cfg.autocat_announce:
                 await self.announce(
                     cfg.say_as(
@@ -303,7 +306,7 @@ class GameArbiter:
             return "Ya hay una prediction activa registrada."
 
         active = await self.helix.get_predictions(self.broadcaster_id)
-        if any(prediction.get("status") == "ACTIVE" for prediction in active):
+        if any(prediction.get("status") in OPEN_PREDICTION for prediction in active):
             return "Twitch ya tiene una prediction activa."
 
         normalized = "valorant"
@@ -345,6 +348,7 @@ class GameArbiter:
             winning_outcome_id=outcome_id,
         )
         await self.state.set("prediction_active", None)
+        self._retry_waiting_match()
         return "Partida ganada." if won else "Partida perdida."
 
     async def cancel_prediction(self) -> str:
@@ -359,6 +363,7 @@ class GameArbiter:
             if "already ended" not in str(exc).lower():
                 raise
         await self.state.set("prediction_active", None)
+        self._retry_waiting_match()
         return "Prediction cancelada."
 
     async def _forget_finished_prediction(self) -> None:
@@ -373,6 +378,15 @@ class GameArbiter:
         )
         if current is None or current.get("status") not in {"ACTIVE", "LOCKED"}:
             await self.state.set("prediction_active", None)
+
+    def _retry_waiting_match(self) -> None:
+        """A prediction just closed: open the one for the match that was waiting.
+
+        Without this, nothing would call apply() again until a source reports a
+        change, which the agent does not do mid-match.
+        """
+        if self._waiting_key is not None:
+            self._schedule(0)
 
     def _skip(self, reason: str) -> None:
         """Reason for not creating a prediction, logged once per reason.
@@ -479,6 +493,7 @@ class GameArbiter:
                         winning_outcome_id=outcome_id,
                     )
                     await self.state.set("prediction_active", None)
+                    self._retry_waiting_match()
                     if self.announce and cfg.autocat_announce:
                         await self.announce(
                             cfg.say_as("Partida ganada." if won else "Partida perdida.")

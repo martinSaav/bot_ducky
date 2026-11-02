@@ -171,6 +171,23 @@ class TestCategoryResolverResolve:
         assert result is None
 
 
+    async def test_resolve_WhenMapAddedForCachedMiss_UsesTheNewMapping(
+        self, resolver, mock_helix, mock_state, tmp_path
+    ):
+        """!recargar after adding an alias must apply to names already cached as misses."""
+        await mock_state.update("game_cache", {"foo": False})
+        game_map = tmp_path / "game_map.json"
+        game_map.write_text(json.dumps({"map": {"foo": "Foo Game"}}), encoding="utf-8")
+        with patch("src.category.cfg") as mock_cfg:
+            mock_cfg.game_map_file = game_map
+            resolver.reload_map()
+        mock_helix.get_game_by_name.return_value = {"id": 1, "name": "Foo Game"}
+
+        result = await resolver.resolve("Foo")
+
+        assert result == {"id": "1", "name": "Foo Game"}
+
+
 class TestCategoryResolverApply:
 
     async def test_apply_WhenSameGameId_ReturnsFalseWithoutPatching(

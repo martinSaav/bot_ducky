@@ -217,3 +217,31 @@ class TestRateLimiter:
         rl.configure(100, 60.0)
         assert rl.limit == 100
         assert rl.window == 60.0
+
+
+# ===========================================================================
+# ChatClient._handle
+# ===========================================================================
+
+class TestChatClientHandle:
+
+    async def test_handle_WhenMessageHandlerIsSlow_DoesNotBlockReading(self):
+        # A long command (!resumen calls an LLM) must not freeze the IRC loop:
+        # PINGs and other messages keep being read meanwhile.
+        from unittest.mock import MagicMock
+        from src.twitch.chat import ChatClient
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_handler(message: ChatMessage) -> None:
+            started.set()
+            await release.wait()
+
+        client = ChatClient(MagicMock(), MagicMock(), "botducky", "chaarqueen", slow_handler)
+        line = "@id=m1;user-id=2 :viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #chaarqueen :!resumen"
+
+        await asyncio.wait_for(client._handle(line), timeout=1)
+        await asyncio.wait_for(started.wait(), timeout=1)
+        release.set()
+        await asyncio.sleep(0)
