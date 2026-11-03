@@ -1,6 +1,11 @@
 services:
   bot:
-    build: .
+    build:
+      context: .
+      args:
+        # Shown in /health and on the dashboard, to tell which code is running:
+        #   GIT_COMMIT=$(git describe --always --dirty) docker compose up -d --build bot
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     container_name: ducky_bot
     restart: unless-stopped
     env_file:

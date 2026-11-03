@@ -16,9 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import logging_setup  # noqa: E402
 from src.category import CategoryResolver  # noqa: E402
+from src.chat_history import ChatHistory  # noqa: E402
 from src.clips.pipeline import ClipPipeline  # noqa: E402
 from src.config import cfg  # noqa: E402
 from src.drive import DriveUploader  # noqa: E402
+from src.gamesource import GameArbiter  # noqa: E402
 from src.riot.lol import LolClient  # noqa: E402
 from src.riot.valorant import ValorantClient  # noqa: E402
 from src.services import Services  # noqa: E402
@@ -49,11 +51,16 @@ async def run(args: argparse.Namespace) -> int:
                 return 1
             broadcaster_id = user["id"]
 
+        resolver = CategoryResolver(helix, state)
+        # The pipeline uses neither the arbiter nor the chat history, but
+        # Services requires them.
         svc = Services(
             session=session, tokens=tokens, state=state, auth=auth, helix=helix,
-            resolver=CategoryResolver(helix, state),
+            resolver=resolver,
+            arbiter=GameArbiter(helix, resolver, str(broadcaster_id), state=state),
             lol=LolClient(session), valorant=ValorantClient(session),
             broadcaster_id=str(broadcaster_id),
+            history=ChatHistory(),
         )
         pipeline = ClipPipeline(svc, DriveUploader(session))
 

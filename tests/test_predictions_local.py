@@ -192,10 +192,39 @@ class TestPredictionResult:
         assert await arbiter._prediction_result({"game": "league of legends", "match_key": "lol:55"}) is None
         arbiter.lol.match_won.assert_not_called()
 
-    async def test_result_WhenValorant_StaysManual(self, arbiter, runtime_cfg):
+    async def test_result_WhenValorantFinalScoreIsAWin_ReturnsTrue(self, arbiter, runtime_cfg):
         arbiter._reports["agent"] = agent(
             "VALORANT", None, source="presence", phase="menus",
             last_match={"id": "val-1", "score": {"ally": 13, "enemy": 9}},
+        )
+        assert await arbiter._prediction_result({"game": "valorant", "match_key": "valorant:val-1"}) is True
+
+    async def test_result_WhenValorantFinalScoreIsALoss_ReturnsFalse(self, arbiter, runtime_cfg):
+        arbiter._reports["agent"] = agent(
+            "VALORANT", None, source="presence", phase="menus",
+            last_match={"id": "val-1", "score": {"ally": 7, "enemy": 13}},
+        )
+        assert await arbiter._prediction_result({"game": "valorant", "match_key": "valorant:val-1"}) is False
+
+    async def test_result_WhenValorantScoreIsTied_StaysManual(self, arbiter, runtime_cfg):
+        arbiter._reports["agent"] = agent(
+            "VALORANT", None, source="presence", phase="menus",
+            last_match={"id": "val-1", "score": {"ally": 12, "enemy": 12}},
+        )
+        assert await arbiter._prediction_result({"game": "valorant", "match_key": "valorant:val-1"}) is None
+
+    async def test_result_WhenValorantScoreIsFromAnotherMatch_StaysManual(self, arbiter, runtime_cfg):
+        arbiter._reports["agent"] = agent(
+            "VALORANT", None, source="presence", phase="menus",
+            last_match={"id": "val-2", "score": {"ally": 13, "enemy": 9}},
+        )
+        assert await arbiter._prediction_result({"game": "valorant", "match_key": "valorant:val-1"}) is None
+
+    async def test_result_WhenValorantStillInGame_StaysManual(self, arbiter, runtime_cfg):
+        # 13-9 mid-match is impossible, but the rule is: only a finished match resolves.
+        arbiter._reports["agent"] = agent(
+            "VALORANT", "val-1", source="presence", phase="in_game",
+            score={"ally": 13, "enemy": 9},
         )
         assert await arbiter._prediction_result({"game": "valorant", "match_key": "valorant:val-1"}) is None
 
@@ -235,6 +264,28 @@ class TestLoLFinished:
         arbiter._schedule_prediction_result = MagicMock()
         await arbiter._check_lol_prediction_finished({"match_key": "lol:55"})
         arbiter._schedule_prediction_result.assert_not_called()
+
+
+class TestValorantFinished:
+
+    async def test_apply_WhenValorantMatchEndsAndStaysInValorant_SchedulesResolution(
+        self, arbiter, mock_state, runtime_cfg
+    ):
+        # Back in the menus, still playing VALORANT: the game did not change,
+        # but the match the prediction was for is over.
+        await mock_state.set("prediction_active", {
+            "match_key": "valorant:val-1", "prediction_id": "p1", "game": "valorant",
+            "outcomes": {"gana": "o-win", "pierde": "o-loss"},
+        })
+        arbiter._reports["agent"] = agent(
+            "VALORANT", None, source="presence", phase="menus",
+            last_match={"id": "val-1", "score": {"ally": 13, "enemy": 9}},
+        )
+        arbiter._schedule_prediction_result = MagicMock()
+
+        await arbiter.apply()
+
+        arbiter._schedule_prediction_result.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

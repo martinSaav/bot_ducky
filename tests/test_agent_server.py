@@ -5,7 +5,7 @@ Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from aiohttp import web
@@ -77,3 +77,68 @@ class TestAuthorization:
             cfg.agent_token = "s3cret"
             response = await AgentServer(None).handle_game(request)
         assert response.status == 503
+
+
+# ===========================================================================
+# Dashboard API: DASHBOARD_TOKEN
+# ===========================================================================
+
+def _dashboard_server() -> AgentServer:
+    provider = MagicMock()
+    provider.snapshot.return_value = {"channel": "chaarqueen"}
+    return AgentServer(None, status_provider=provider)
+
+
+class TestDashboardToken:
+    """/api/* and /ws expose the chat and the logs: with DASHBOARD_TOKEN set
+    they need it, as a Bearer header or as ?token= (WebSockets cannot send
+    headers from the browser)."""
+
+    async def test_handleStatus_WhenTokenSetAndMissing_Returns401(self):
+        request = make_mocked_request("GET", "/api/status")
+        with patch("src.agent_server.cfg") as cfg:
+            cfg.dashboard_token = "dash"
+            response = await _dashboard_server().handle_status(request)
+        assert response.status == 401
+
+    async def test_handleStatus_WhenBearerMatches_Returns200(self):
+        request = make_mocked_request("GET", "/api/status", headers={"Authorization": "Bearer dash"})
+        with patch("src.agent_server.cfg") as cfg:
+            cfg.dashboard_token = "dash"
+            response = await _dashboard_server().handle_status(request)
+        assert response.status == 200
+
+    async def test_handleStatus_WhenQueryTokenMatches_Returns200(self):
+        request = make_mocked_request("GET", "/api/status?token=dash")
+        with patch("src.agent_server.cfg") as cfg:
+            cfg.dashboard_token = "dash"
+            response = await _dashboard_server().handle_status(request)
+        assert response.status == 200
+
+    async def test_handleStatus_WhenTokenWrong_Returns401(self):
+        request = make_mocked_request("GET", "/api/status?token=nope")
+        with patch("src.agent_server.cfg") as cfg:
+            cfg.dashboard_token = "dash"
+            response = await _dashboard_server().handle_status(request)
+        assert response.status == 401
+
+    async def test_handleLogs_WhenTokenSetAndMissing_Returns401(self):
+        request = make_mocked_request("GET", "/api/logs?source=bot")
+        with patch("src.agent_server.cfg") as cfg:
+            cfg.dashboard_token = "dash"
+            response = await _dashboard_server().handle_logs(request)
+        assert response.status == 401
+
+    async def test_handleWebsocket_WhenTokenSetAndMissing_Returns401(self):
+        request = make_mocked_request("GET", "/ws")
+        with patch("src.agent_server.cfg") as cfg:
+            cfg.dashboard_token = "dash"
+            response = await _dashboard_server().handle_websocket(request)
+        assert response.status == 401
+
+    async def test_handleStatus_WhenNoTokenConfigured_StaysOpen(self):
+        request = make_mocked_request("GET", "/api/status")
+        with patch("src.agent_server.cfg") as cfg:
+            cfg.dashboard_token = ""
+            response = await _dashboard_server().handle_status(request)
+        assert response.status == 200

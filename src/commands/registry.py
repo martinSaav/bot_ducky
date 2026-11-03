@@ -141,7 +141,8 @@ class Registry:
         self.add("categoria", self.cmd_category, aliases=("cat", "juego", "game"),
                  help="changes the category (mods)", cooldown=5, mod_only=True)
         self.add("gamef", self.cmd_category_force, aliases=("catf", "juegof"),
-                 help="pins the category for 4h; the bot will not override it (mods)", cooldown=5, mod_only=True)
+                 help="pins the category for 4h (off releases it); the bot will not override it (mods)",
+                 cooldown=5, mod_only=True)
         self.add("auto", self.cmd_auto,
                  help="turns the auto-categorizer on/off (mods)", cooldown=5, mod_only=True)
         self.add("recargar", self.cmd_reload, aliases=("reload",),
@@ -202,26 +203,7 @@ class Registry:
                     for m in sampled
                 ]
 
-        # 2. Fallback: PostgreSQL messages by time window.
-        if messages is None and ctx.svc.database_history is not None:
-            limit = ctx.svc.llm_summary.max_messages if ctx.svc.llm_summary else 2_000
-            persisted = await ctx.svc.database_history.recent(seconds, limit=limit)
-            if persisted:
-                log.info(
-                    "cmd_summary: %d messages via time window (%ds)",
-                    len(persisted), seconds,
-                )
-                messages = [
-                    HistoryEntry(
-                        author_id="",
-                        display_name=m["display_name"],
-                        text=m["text"],
-                        created_at=m["created_at"],
-                    )
-                    for m in persisted
-                ]
-
-        # 3. Last fallback: in-memory history.
+        # 2. Fallback: in-memory history.
         if messages is None:
             messages = ctx.svc.history.since(seconds)
 
@@ -285,8 +267,7 @@ class Registry:
         return await ctx.svc.valorant.last_match(ctx.argstr or None)
 
     async def cmd_vgame(self, ctx: Ctx) -> str:
-        if not ctx.svc.valorant.configured:
-            return "Los comandos de Valorant no estan configurados todavia."
+        # Only creates a Twitch prediction: it does not need HenrikDev.
         return await ctx.svc.arbiter.confirm_valorant_prediction()
 
     async def cmd_vwin(self, ctx: Ctx) -> str:
@@ -332,7 +313,13 @@ class Registry:
 
     async def cmd_category_force(self, ctx: Ctx) -> str:
         if not ctx.argstr:
-            return f"Uso: {PREFIX}gamef <juego>  — fija la categoria por 4h, el bot no la pisa."
+            return (
+                f"Uso: {PREFIX}gamef <juego>  — fija la categoria por 4h, el bot no la pisa. "
+                f"{PREFIX}gamef off la libera antes."
+            )
+        if ctx.argstr.lower() in ("off", "auto"):
+            ctx.svc.arbiter.clear_forced_game()
+            return "Categoria liberada: el auto-categorizador vuelve a decidir."
         game = await ctx.svc.resolver.resolve(ctx.argstr)
         if not game:
             return f"No encontre la categoria {ctx.argstr!r} en Twitch."

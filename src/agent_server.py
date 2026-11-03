@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import WSMsgType, web
 
+from .build_info import build_info
 from .config import cfg
 
 if TYPE_CHECKING:
@@ -51,7 +52,7 @@ def _cors_headers(request: web.Request) -> dict[str, str]:
         return {
             "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
             "Vary": "Origin",
         }
     return {}
@@ -80,6 +81,16 @@ class AgentServer:
             return False
         # Constant-time comparison: the token does not leak through timing.
         return hmac.compare_digest(header[len(prefix):], cfg.agent_token)
+
+    def _dashboard_authorized(self, request: web.Request) -> bool:
+        """/api/* and /ws: Bearer header or ?token= (a browser WebSocket
+        cannot send headers). Open when DASHBOARD_TOKEN is not set."""
+        if not cfg.dashboard_token:
+            return True
+        header = request.headers.get("Authorization", "")
+        supplied = header[len("Bearer "):] if header.startswith("Bearer ") else ""
+        supplied = supplied or request.rel_url.query.get("token", "")
+        return bool(supplied) and hmac.compare_digest(supplied, cfg.dashboard_token)
 
     async def handle_game(self, request: web.Request) -> web.Response:
         if not self._authorized(request):
@@ -170,7 +181,9 @@ class AgentServer:
 
     async def handle_health(self, request: web.Request) -> web.Response:
         """For checking from a browser that the port is reachable from the other PC."""
-        return web.json_response({"ok": True, "channel": cfg.twitch_channel})
+        return web.json_response(
+            {"ok": True, "channel": cfg.twitch_channel, "build": build_info()}
+        )
 
     # ------------------------------------------------------------------
     # Dashboard API endpoints
@@ -179,6 +192,8 @@ class AgentServer:
     async def handle_status(self, request: web.Request) -> web.Response:
         """JSON snapshot of the full bot state."""
         headers = _cors_headers(request)
+        if not self._dashboard_authorized(request):
+            return web.json_response({"error": "invalid token"}, status=401, headers=headers)
         if self.status_provider is None:
             return web.json_response({"error": "status not available"}, status=503, headers=headers)
         try:
@@ -191,6 +206,8 @@ class AgentServer:
     async def handle_logs(self, request: web.Request) -> web.Response:
         """Last N lines of the selected log (tail)."""
         headers = _cors_headers(request)
+        if not self._dashboard_authorized(request):
+            return web.json_response({"error": "invalid token"}, status=401, headers=headers)
         try:
             n = min(int(request.rel_url.query.get("n", "100")), 500)
         except (ValueError, TypeError):
@@ -215,8 +232,10 @@ class AgentServer:
     async def handle_cors_preflight(self, request: web.Request) -> web.Response:
         return web.Response(status=204, headers=_cors_headers(request))
 
-    async def handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
+    async def handle_websocket(self, request: web.Request) -> web.StreamResponse:
         """WebSocket for real-time events (chat, game changes, etc.)."""
+        if not self._dashboard_authorized(request):
+            return web.json_response({"error": "invalid token"}, status=401)
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
 
@@ -287,6 +306,12 @@ class AgentServer:
         log.info(
             "Dashboard API on http://%s:%s/api/status", cfg.agent_host, cfg.agent_port
         )
+        if not cfg.dashboard_token:
+            log.warning(
+                "DASHBOARD_TOKEN is not set: /api and /ws (chat and logs) are open "
+                "to anyone who can reach port %s", cfg.agent_port,
+            )
+        log.info("Build %s", build_info()["commit"])
 
     async def stop(self) -> None:
         if self._runner is not None:

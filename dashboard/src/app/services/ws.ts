@@ -2,8 +2,11 @@ import { Injectable, OnDestroy } from '@angular/core';
 import { Observable, Subject, timer, EMPTY } from 'rxjs';
 import { catchError, switchMap, tap } from 'rxjs/operators';
 import { WsEvent, ChatMessage } from '../models/bot-status';
+import { dashboardToken } from './dashboard-token';
 
-const WS_URL = `ws://${window.location.hostname}:${window.location.port || 8787}/ws`;
+// A browser WebSocket cannot send headers, so the token goes in the URL.
+const WS_URL = `ws://${window.location.hostname}:${window.location.port || 8787}/ws`
+  + (dashboardToken() ? `?token=${encodeURIComponent(dashboardToken())}` : '');
 
 @Injectable({ providedIn: 'root' })
 export class WsService implements OnDestroy {

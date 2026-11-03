@@ -60,6 +60,8 @@ class Config:
 
     # --- desktop agent (Rust) ---
     agent_token = _str("AGENT_TOKEN")
+    # Protects /api/* and /ws (chat and logs). Empty = open, with a warning.
+    dashboard_token = _str("DASHBOARD_TOKEN")
     agent_host = _str("AGENT_HOST", "0.0.0.0")
     agent_port = _int("AGENT_PORT", 8787)
     agent_debounce = _int("AGENT_DEBOUNCE_SECONDS", 15)

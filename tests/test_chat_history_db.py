@@ -39,3 +39,20 @@ class TestEmbeddingSearch:
 
         # asyncpg has no codec for list -> vector: it must get the text literal.
         assert conn.fetch.await_args.args[2] == "[0.5,0.25]"
+
+
+class TestSessionSummary:
+
+    async def test_setSessionSummary_UpdatesTheStreamRow(self):
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        pool = MagicMock()
+        pool.acquire.return_value.__aenter__.return_value = conn
+        history = PostgresChatHistory("postgresql://unused")
+        history._pool = pool
+
+        await history.set_session_summary("s1", "- Juego: VALORANT")
+
+        sql, *params = conn.execute.await_args.args
+        assert "UPDATE stream_sessions" in sql
+        assert params == ["s1", "- Juego: VALORANT"]

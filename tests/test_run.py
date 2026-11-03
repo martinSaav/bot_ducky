@@ -58,3 +58,48 @@ class TestWaitForExit:
 
         await asyncio.wait_for(run.wait_for_exit(tasks, stop), timeout=1)
         tasks["chat"].cancel()
+
+
+class TestSummarizeLater:
+    """If the LLM fails when the stream ends (Gemini 503 on Nov 1), the
+    summary is retried later instead of being lost."""
+
+    async def test_summarizeLater_WhenRetrySucceeds_SavesAndAnnouncesIt(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        llm = MagicMock()
+        llm.summarize = AsyncMock(side_effect=[None, "- Juego: VALORANT"])
+        database = MagicMock()
+        database.set_session_summary = AsyncMock()
+        chat = MagicMock()
+        chat.say = AsyncMock()
+        sleep = AsyncMock()
+
+        summary = await run.summarize_later(
+            llm, [], "VALORANT", "3h",
+            stream_id="s1", database_history=database, chat=chat,
+            delays=(300, 900), sleep=sleep,
+        )
+
+        assert summary == "- Juego: VALORANT"
+        assert [call.args[0] for call in sleep.await_args_list] == [300, 900]
+        database.set_session_summary.assert_awaited_once_with("s1", "- Juego: VALORANT")
+        chat.say.assert_awaited_once()
+
+    async def test_summarizeLater_WhenEveryRetryFails_GivesUpWithoutSaving(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        llm = MagicMock()
+        llm.summarize = AsyncMock(return_value=None)
+        database = MagicMock()
+        database.set_session_summary = AsyncMock()
+
+        summary = await run.summarize_later(
+            llm, [], "VALORANT", "3h",
+            stream_id="s1", database_history=database, chat=None,
+            delays=(1, 1, 1), sleep=AsyncMock(),
+        )
+
+        assert summary is None
+        assert llm.summarize.await_count == 3
+        database.set_session_summary.assert_not_called()

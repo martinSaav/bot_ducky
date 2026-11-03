@@ -206,6 +206,17 @@ class PostgresChatHistory:
                 summary,
             )
 
+    async def set_session_summary(self, stream_id: str, summary: str) -> None:
+        """Stores a summary that arrived after the session was closed."""
+        if self._pool is None:
+            return
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE stream_sessions SET summary = $2 WHERE twitch_stream_id = $1",
+                stream_id,
+                summary,
+            )
+
     async def stop(self) -> None:
         if self._worker is not None:
             await self._queue.put(None)

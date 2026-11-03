@@ -47,6 +47,11 @@ export interface ChatMessage {
   ts: number;
 }
 
+export interface BuildInfo {
+  commit: string;
+  built_at: string;
+}
+
 export interface BotStatus {
   channel: string;
   bot_login: string;
@@ -62,6 +67,7 @@ export interface BotStatus {
   riot: RiotStatus;
   ws_clients: number;
   snapshot_at: number;
+  build?: BuildInfo;
 }
 
 export interface WsEvent {

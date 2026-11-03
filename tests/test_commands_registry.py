@@ -307,3 +307,39 @@ class TestAliases:
         await registry.dispatch(msg)
         response = mock_services.chat.say.call_args[0][0]
         assert "configurad" in response.lower()
+
+
+# ===========================================================================
+# Review follow-ups: !gamef off, !vgame without HenrikDev, !resumen queries
+# ===========================================================================
+
+class TestReviewFollowUps:
+
+    async def test_gamef_WhenOff_ClearsThePinnedCategory(self, registry, mock_services):
+        arbiter = mock_services.arbiter
+        arbiter._schedule = MagicMock()
+        await arbiter.force_game("Just Chatting")
+
+        await registry.dispatch(make_message(text="!gamef off", is_mod=True))
+
+        assert "manual" not in arbiter.sources()
+        mock_services.helix.get_game_by_name.assert_not_called()
+
+    async def test_vgame_WhenHenrikDevNotConfigured_StillCreatesPrediction(self, registry, mock_services):
+        # The manual Valorant prediction does not use HenrikDev at all.
+        mock_services.valorant.configured = False
+        mock_services.arbiter.confirm_valorant_prediction = AsyncMock(
+            return_value="Prediction de Valorant iniciada."
+        )
+
+        await registry.dispatch(make_message(text="!vgame", is_mod=True))
+
+        mock_services.arbiter.confirm_valorant_prediction.assert_awaited_once()
+
+    async def test_summary_WhenDatabaseHasNoMessages_QueriesItOnce(self, registry, mock_services):
+        mock_services.database_history = MagicMock()
+        mock_services.database_history.recent = AsyncMock(return_value=[])
+
+        await registry.dispatch(make_message(text="!resumen"))
+
+        mock_services.database_history.recent.assert_awaited_once()

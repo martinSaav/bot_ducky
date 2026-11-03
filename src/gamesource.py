@@ -101,6 +101,11 @@ class GameArbiter:
         """A manual !categoria overrides whatever was last applied automatically."""
         self._last_applied = game_name
 
+    def clear_forced_game(self) -> None:
+        """Ends a !gamef pin early: the automatic sources decide again."""
+        self._reports.pop("manual", None)
+        self._schedule(0)
+
     async def force_game(self, game_name: str) -> None:
         """Forces a game as the highest-priority 'manual' source.
 
@@ -184,6 +189,8 @@ class GameArbiter:
         previous_game = str((active_prediction or {}).get("game", ""))
         if active_prediction and "league of legends" in previous_game:
             await self._check_lol_prediction_finished(active_prediction)
+        if active_prediction and "valorant" in previous_game:
+            self._check_valorant_prediction_finished(active_prediction)
         if active_prediction and (
             not game_name or previous_game not in (game_name or "").lower()
         ):
@@ -427,6 +434,24 @@ class GameArbiter:
                 return False
         return None
 
+    def _local_valorant_result(self, match_id: str) -> bool | None:
+        """Result of a finished Valorant match, from its final score.
+
+        Only last_match counts: the score of a match still being played does
+        not decide anything. A tie (or no score) stays manual.
+        """
+        report = self._local("valorant")
+        if report is None:
+            return None
+        last = (report.metadata or {}).get("last_match") or {}
+        if str(last.get("id", "")) != match_id:
+            return None
+        score = last.get("score") or {}
+        ally, enemy = score.get("ally"), score.get("enemy")
+        if not isinstance(ally, int) or not isinstance(enemy, int) or ally == enemy:
+            return None
+        return ally > enemy
+
     async def _prediction_match_key(self, normalized_game: str) -> str | None:
         if "league of legends" in normalized_game:
             prefix = "lol"
@@ -521,12 +546,24 @@ class GameArbiter:
                 return await self.lol.match_won(game_id)
             return None
         if "valorant" in game:
-            log.info(
-                "Not resolving Valorant prediction automatically: "
-                "use !vwin or !vloss"
-            )
+            # Keys from the agent are "valorant:<id>"; the ones from !vgame are
+            # "valorant:manual:<ns>" and have no local match to read.
+            match_id = match_key.removeprefix("valorant:")
+            if match_key.startswith("valorant:") and not match_id.startswith("manual:"):
+                local = self._local_valorant_result(match_id)
+                if local is not None:
+                    log.info("Valorant result from the final score: %s", "win" if local else "loss")
+                    return local
+            log.info("No Valorant result yet: use !vwin or !vloss if it does not arrive")
             return None
         return None
+
+    def _check_valorant_prediction_finished(self, prediction: dict[str, Any]) -> None:
+        """Detect a finished Valorant match while the game is still VALORANT."""
+        match_key = str(prediction.get("match_key", ""))
+        match_id = match_key.removeprefix("valorant:")
+        if self._local_valorant_result(match_id) is not None:
+            self._schedule_prediction_result()
 
     async def _check_lol_prediction_finished(self, prediction: dict[str, Any]) -> None:
         """Detect a finished LoL game even when the active game is still LoL."""

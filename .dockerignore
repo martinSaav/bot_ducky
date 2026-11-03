@@ -6,3 +6,20 @@ htmlcov
 .coverage
 coverage.xml
 agent/target
+
+# Secrets and runtime data: passed at runtime (env_file) or mounted as
+# volumes in docker-compose.yml. They must never be baked into the image.
+.env
+data/
+secrets/
+logs/
+downloads/
+
+# Built inside the image (Dockerfile stage 1); the host copies may be stale.
+dashboard/node_modules
+dashboard/dist
+dashboard/.angular
+
+# Not used by the bot
+agent/
+tests/

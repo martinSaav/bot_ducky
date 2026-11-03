@@ -22,3 +22,6 @@ agent/agent.log
 coverage.xml
 htmlcov/
 .pytest_cache/
+
+# uv lockfile (dependencies are managed with requirements*.txt)
+uv.lock

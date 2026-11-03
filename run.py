@@ -14,6 +14,7 @@ import logging
 import signal
 import time
 from datetime import datetime, timezone
+from typing import Awaitable, Callable
 
 import aiohttp
 
@@ -55,6 +56,8 @@ async def monitor_stream(
     chat: ChatClient | None = None,
 ) -> None:
     """Detect the live-to-offline transition and log a session summary."""
+    # Strong references: asyncio does not keep running tasks alive by itself.
+    retries: set[asyncio.Task] = set()
     session_started = time.time()
     stream_id: str | None = None
     session_game: str | None = None
@@ -119,6 +122,18 @@ async def monitor_stream(
                     log.info("Final stream summary:\n%s", summary)
                     if chat:
                         await chat.say(f"Resumen del stream: {summary}")
+                elif seconds >= min_seconds and llm_summary.configured and messages:
+                    log.info("Stream ended; LLM summary failed, retrying later")
+                    task = asyncio.create_task(
+                        summarize_later(
+                            llm_summary, messages, live_game_name(arbiter),
+                            _format_seconds(seconds), stream_id=stream_id,
+                            database_history=database_history, chat=chat,
+                        ),
+                        name="summary-retry",
+                    )
+                    retries.add(task)
+                    task.add_done_callback(retries.discard)
                 else:
                     log.info("Stream ended; no LLM summary available")
                 if database_history is not None and stream_id:
@@ -144,6 +159,41 @@ async def monitor_stream(
             await asyncio.wait_for(stop.wait(), timeout=cfg.presence_check_seconds)
         except asyncio.TimeoutError:
             pass
+
+
+async def summarize_later(
+    llm_summary: LlmSummary,
+    messages: list[HistoryEntry],
+    game: str,
+    window: str,
+    *,
+    stream_id: str | None,
+    database_history: PostgresChatHistory | None,
+    chat: ChatClient | None,
+    delays: tuple[int, ...] = (300, 900, 1800),
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> str | None:
+    """Retries the end-of-stream summary after the LLM failed.
+
+    A busy model (e.g. Gemini's 503 "high demand") usually recovers within
+    minutes, so the summary is retried later instead of being lost.
+    """
+    for delay in delays:
+        await sleep(delay)
+        summary = await llm_summary.summarize(messages, game, window)
+        if not summary:
+            continue
+        log.info("Final stream summary (retried):\n%s", summary)
+        try:
+            if database_history is not None and stream_id:
+                await database_history.set_session_summary(stream_id, summary)
+            if chat:
+                await chat.say(f"Resumen del stream: {summary}")
+        except Exception:  # noqa: BLE001 - the summary is already in the log
+            log.exception("Could not store or announce the retried summary")
+        return summary
+    log.warning("Stream summary still unavailable after %d retries; giving up", len(delays))
+    return None
 
 
 async def wait_for_exit(tasks: dict[str, asyncio.Task], stop: asyncio.Event) -> None:

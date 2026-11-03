@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from ..build_info import build_info
+
 if TYPE_CHECKING:
     from ..gamesource import GameArbiter
     from ..chat_history import ChatHistory
@@ -143,7 +145,7 @@ class StatusProvider:
             "key_dead": bool(self.lol and self.lol._key_dead),  # noqa: SLF001
         }
 
-        # Valorant (HenrikDev configurado)
+        # Valorant (HenrikDev configured)
         from ..config import cfg
         val_status = {
             "configured": bool(cfg.henrik_api_key and cfg.valorant_id),
@@ -176,5 +178,6 @@ class StatusProvider:
                 "valorant": val_status,
             },
             "ws_clients": self.broadcaster.count,
+            "build": build_info(),
             "snapshot_at": time.time(),
         }

@@ -433,7 +433,7 @@ the streamer's PC. It does not depend on any API key:
 | Game | Created | Resolved |
 |---|---|---|
 | League of Legends | When the match starts (not in champion select, because of dodges) | With the local client's result |
-| Valorant | On entering agent select | By hand with `!vwin` / `!vloss` |
+| Valorant | On entering agent select | With the final score, when she goes back to the menus (a tie stays manual) |
 
 The public APIs remain as a fallback when the agent has no data from the
 client. For LoL, Spectator-V5 to know whether there is a match and Match-V5 for
@@ -442,7 +442,12 @@ duplicated if the agent goes down mid-match. Those two need a valid Riot key. If
 there is no result from anywhere, `!vwin` / `!vloss` resolve any open
 prediction, LoL or Valorant.
 
-`!vgame` still works to force a Valorant prediction by hand.
+`!vgame` still works to force a Valorant prediction by hand. Those have no
+local match behind them, so they are resolved with `!vwin` / `!vloss`.
+
+If the summary fails when the stream ends (for example, the LLM answers
+"high demand"), the bot retries it 5, 15 and 30 minutes later; when it arrives
+it is stored in `stream_sessions` and posted in chat.
 
 The details of what the agent queries on each client are in
 [`docs/agent.md`](docs/agent.md).
@@ -493,7 +498,7 @@ instead of the streamer's.
 | Command | What it does |
 |---|---|
 | `!categoria <juego>` | Changes the category by hand (with no argument, shows the current one) |
-| `!gamef <juego>` | Pins the category for 4 hours; the auto-categorizer will not override it |
+| `!gamef <juego>` | Pins the category for 4 hours; the auto-categorizer will not override it. `!gamef off` releases it early |
 | `!auto on` / `!auto off` | Turns the auto-categorizer on and off live. With no argument it says which sources are alive |
 | `!recargar` | Re-reads `config/game_map.json` without restarting the bot |
 | `!vgame` | Manually confirms a Valorant match and starts the prediction |
@@ -535,6 +540,29 @@ After editing it: `!recargar` in chat, no restart needed.
 ---
 
 ## Keeping it running
+
+**Docker (how it runs today)**
+
+`docker compose` starts the bot and PostgreSQL. **The code is copied into the
+image**, so after any change the image has to be rebuilt, or the old code keeps
+running. Pass the commit so you can tell which code is live:
+
+```bash
+GIT_COMMIT=$(git describe --always --dirty) docker compose up -d --build bot
+```
+
+```powershell
+$env:GIT_COMMIT = git describe --always --dirty; docker compose up -d --build bot
+```
+
+The running commit shows in `http://localhost:8787/health` and on the
+dashboard ("Build"). The image also builds the dashboard itself, served at
+`http://localhost:8787/dashboard/`. With `DASHBOARD_TOKEN` set, open it once as
+`/dashboard/?token=<value>` and the browser remembers it.
+
+`.env` reaches the container through `env_file`, and `data/`, `logs/`,
+`config/` and `secrets/` are mounted volumes: none of them is copied into the
+image.
 
 **Windows (Task Scheduler)** — create a task:
 
@@ -597,6 +625,8 @@ Three things to keep in mind when moving it to a Linux VPS:
 | The agent does not reach the bot | Try `http://IP:8787/health` from her PC. If it does not answer: Tailscale is down, `AGENT_HOST` is not `0.0.0.0`, or the Windows firewall blocks the port. |
 | The agent reports but nothing changes | Different token in `.env` and `agent.toml` (a 401 shows up in the agent log), or `!auto off` is active. |
 | A prediction is not created | Run `twitch-game-agent.exe --once` on her PC with the game open: it shows what the local client reports. |
+| The dashboard stays on "Connecting to the bot…" | `DASHBOARD_TOKEN` is set and the browser does not have it: open `/dashboard/?token=<value>` once. |
+| A change does not show up in the bot | The Docker image was not rebuilt: compare the "Build" on the dashboard (or `/health`) with `git log -1`, and rebuild. |
 | `invalid client` when authorizing | The redirect URI in `.env` does not exactly match the one at dev.twitch.tv. |
 | The bot does not reply in chat | The bot account may be restricted by follower/subscriber modes. Make it a channel mod — it also raises the send limit from 20 to 100 messages per 30 s. |
 
