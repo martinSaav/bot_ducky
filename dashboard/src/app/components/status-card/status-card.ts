@@ -47,10 +47,7 @@ import { BotApiService } from '../../services/bot-api';
             <span class="label">WS clients</span>
             <span class="value mono">{{ s.ws_clients }}</span>
           </div>
-          <div class="stat-row">
-            <span class="label">Build</span>
-            <span class="value mono" [title]="s.build?.built_at ?? ''">{{ s.build?.commit ?? '–' }}</span>
-          </div>
+
         </mat-card-content>
       </mat-card>
     } @else {

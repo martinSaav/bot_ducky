@@ -57,6 +57,9 @@ class Report:
     match_id: str | None = None
     #: Live data the agent reads from the game client.
     metadata: dict[str, Any] | None = None
+    #: Wall-clock time (time.time()) when match_id was first seen. Shown on
+    #: the dashboard as the match timer.
+    match_since: float | None = None
 
     @property
     def stale(self) -> bool:
@@ -130,12 +133,19 @@ class GameArbiter:
     ) -> None:
         """A source reports which game it sees. Always the absolute state."""
         previous = self._reports.get(source)
+        if match_id is None:
+            match_since = None
+        elif previous is not None and previous.match_id == match_id and previous.match_since:
+            match_since = previous.match_since
+        else:
+            match_since = time.time()
         self._reports[source] = Report(
             game=game,
             at=time.monotonic(),
             stale_after=stale_after,
             match_id=match_id,
             metadata=metadata,
+            match_since=match_since,
         )
 
         if previous is not None and previous.game == game and not previous.stale and not force:

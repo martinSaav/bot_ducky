@@ -475,3 +475,33 @@ class TestValorantLocalClient:
             {"puuid": "me", "product": "valorant", "private": _b64({"sessionLoopState": "INGAME"})},
         ]})
         assert await client.match_phase() == "in_game"
+
+
+# ---------------------------------------------------------------------------
+# match_since: when the current match started (shown on the dashboard)
+# ---------------------------------------------------------------------------
+
+class TestMatchSince:
+
+    async def test_report_WhenNewMatchStarts_RecordsItsStart(self, arbiter, runtime_cfg):
+        arbiter._schedule = MagicMock()
+        before = time.time()
+        await arbiter.report("agent", "VALORANT", match_id="val-1",
+                             metadata={"source": "presence", "phase": "pregame"}, stale_after=210)
+        assert arbiter.sources()["agent"].match_since >= before
+
+    async def test_report_WhenSameMatchContinues_KeepsTheStart(self, arbiter, runtime_cfg):
+        arbiter._schedule = MagicMock()
+        arbiter._reports["agent"] = agent("VALORANT", "val-1", source="presence", phase="pregame")
+        arbiter._reports["agent"].match_since = 100.0
+        await arbiter.report("agent", "VALORANT", match_id="val-1",
+                             metadata={"source": "presence", "phase": "in_game"}, stale_after=210)
+        assert arbiter.sources()["agent"].match_since == 100.0
+
+    async def test_report_WhenNoMatch_HasNoStart(self, arbiter, runtime_cfg):
+        arbiter._schedule = MagicMock()
+        arbiter._reports["agent"] = agent("VALORANT", "val-1", source="presence", phase="in_game")
+        arbiter._reports["agent"].match_since = 100.0
+        await arbiter.report("agent", "VALORANT", match_id=None,
+                             metadata={"source": "presence", "phase": "menus"}, stale_after=210)
+        assert arbiter.sources()["agent"].match_since is None

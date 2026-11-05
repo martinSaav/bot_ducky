@@ -54,8 +54,13 @@ async def monitor_stream(
     arbiter: GameArbiter,
     stop: asyncio.Event,
     chat: ChatClient | None = None,
+    on_stream: Callable[[dict | None], None] | None = None,
 ) -> None:
-    """Detect the live-to-offline transition and log a session summary."""
+    """Detect the live-to-offline transition and log a session summary.
+
+    on_stream receives every check's result (the stream, or None when
+    offline): the dashboard shows it.
+    """
     # Strong references: asyncio does not keep running tasks alive by itself.
     retries: set[asyncio.Task] = set()
     session_started = time.time()
@@ -65,6 +70,8 @@ async def monitor_stream(
     while not stop.is_set():
         try:
             live = await helix.get_stream(cfg.twitch_channel)
+            if on_stream is not None:
+                on_stream(live)
             if live:
                 if not was_live:
                     stream_id = str(live.get("id", "")) or None
@@ -458,7 +465,8 @@ async def main() -> int:
 
         tasks["stream-monitor"] = asyncio.create_task(
             monitor_stream(
-                helix, history, database_history, llm_summary, arbiter, stop, svc.chat
+                helix, history, database_history, llm_summary, arbiter, stop, svc.chat,
+                on_stream=status_provider.update_stream,
             ),
             name="stream-monitor",
         )

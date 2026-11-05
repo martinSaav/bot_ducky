@@ -47,6 +47,40 @@ export interface ChatMessage {
   ts: number;
 }
 
+export interface Score {
+  ally: number;
+  enemy: number;
+}
+
+export interface LastMatch {
+  id: string;
+  /** LoL: "win" | "loss" | null. */
+  result?: string | null;
+  /** Valorant: final score. */
+  score?: Score | null;
+}
+
+/** Match state read by the agent from the game client. */
+export interface MatchStatus {
+  game: string;
+  phase: 'menus' | 'pregame' | 'in_game' | 'post_game' | string;
+  queue: string | null;
+  score: Score | null;
+  match_id: string | null;
+  /** Epoch seconds when the bot first saw this match. */
+  since: number | null;
+  last_match: LastMatch | null;
+}
+
+/** live: null until the bot's first check. */
+export interface StreamStatus {
+  live: boolean | null;
+  title?: string;
+  viewers?: number;
+  started_at?: string | null;
+  game?: string | null;
+}
+
 export interface BuildInfo {
   commit: string;
   built_at: string;
@@ -68,6 +102,8 @@ export interface BotStatus {
   ws_clients: number;
   snapshot_at: number;
   build?: BuildInfo;
+  stream?: StreamStatus;
+  match?: MatchStatus | null;
 }
 
 export interface WsEvent {

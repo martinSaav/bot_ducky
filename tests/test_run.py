@@ -103,3 +103,31 @@ class TestSummarizeLater:
         assert summary is None
         assert llm.summarize.await_count == 3
         database.set_session_summary.assert_not_called()
+
+
+class TestMonitorStreamFeedsDashboard:
+
+    async def test_monitorStream_WhenChecked_PassesTheStreamToTheCallback(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from src.chat_history import ChatHistory
+
+        stream = {"id": "1", "title": "ranked", "viewer_count": 42,
+                  "started_at": "2026-11-07T04:00:00Z", "game_name": "VALORANT"}
+        helix = MagicMock()
+        helix.get_stream = AsyncMock(return_value=stream)
+        stop = asyncio.Event()
+        seen: list = []
+
+        def on_stream(value):
+            seen.append(value)
+            stop.set()
+
+        with patch("run.cfg") as cfg:
+            cfg.presence_check_seconds = 0.01
+            await asyncio.wait_for(
+                run.monitor_stream(helix, ChatHistory(), None, MagicMock(), MagicMock(), stop,
+                                   on_stream=on_stream),
+                timeout=1,
+            )
+
+        assert seen == [stream]

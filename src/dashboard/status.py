@@ -16,7 +16,7 @@ from aiohttp import web
 from ..build_info import build_info
 
 if TYPE_CHECKING:
-    from ..gamesource import GameArbiter
+    from ..gamesource import GameArbiter, Report
     from ..chat_history import ChatHistory
     from ..storage import JsonStore
     from ..riot.lol import LolClient
@@ -59,6 +59,42 @@ class WSBroadcaster:
         return len(self._sockets)
 
 
+# Readable queue names: Valorant reports a string, LoL a numeric queueId.
+_QUEUES: dict[str | int, str] = {
+    "competitive": "Competitive",
+    "unrated": "Unrated",
+    "swiftplay": "Swiftplay",
+    "spikerush": "Spike Rush",
+    "deathmatch": "Deathmatch",
+    "hurm": "Team Deathmatch",
+    "ggteam": "Escalation",
+    "premier": "Premier",
+    "onefa": "Replication",
+    "snowball": "Snowball Fight",
+    "custom": "Custom",
+    0: "Custom",
+    400: "Normal Draft",
+    420: "Ranked Solo/Duo",
+    430: "Normal Blind",
+    440: "Ranked Flex",
+    450: "ARAM",
+    490: "Quickplay",
+    700: "Clash",
+    900: "ARURF",
+    1700: "Arena",
+    1900: "URF",
+}
+
+
+def queue_label(raw: str | int | None) -> str | None:
+    """Readable name of a Valorant or LoL queue; unknown ones as text."""
+    if raw is None or raw == "":
+        return None
+    if raw in _QUEUES:
+        return _QUEUES[raw]
+    return f"Queue {raw}" if isinstance(raw, int) else str(raw)
+
+
 class StatusProvider:
     """Collects the state of every bot subsystem.
 
@@ -93,6 +129,39 @@ class StatusProvider:
         self.bot_login: str = ""
         self.channel: str = ""
         self.start_time: float = time.time()
+        # Latest stream check from run.monitor_stream; live None = not checked yet.
+        self._stream: dict[str, Any] = {"live": None}
+
+    def update_stream(self, stream: dict[str, Any] | None) -> None:
+        """Result of the latest /helix/streams check (None = offline)."""
+        if not stream:
+            self._stream = {"live": False}
+            return
+        self._stream = {
+            "live": True,
+            "title": stream.get("title", ""),
+            "viewers": stream.get("viewer_count", 0),
+            "started_at": stream.get("started_at"),
+            "game": stream.get("game_name"),
+        }
+
+    def _match(self, agent: "Report | None") -> dict[str, Any] | None:
+        """Match state read by the agent from the game client, if any."""
+        if agent is None or agent.stale or not agent.metadata:
+            return None
+        meta = agent.metadata
+        if not meta.get("phase"):
+            return None
+        queue = meta.get("queue") if meta.get("queue") is not None else meta.get("queue_id")
+        return {
+            "game": agent.game,
+            "phase": meta.get("phase"),
+            "queue": queue_label(queue),
+            "score": meta.get("score"),
+            "match_id": agent.match_id,
+            "since": agent.match_since,
+            "last_match": meta.get("last_match"),
+        }
 
     def snapshot(self) -> dict[str, Any]:
         """Returns the full bot state as a JSON-serializable dict."""
@@ -177,6 +246,8 @@ class StatusProvider:
                 "lol": lol_status,
                 "valorant": val_status,
             },
+            "stream": dict(self._stream),
+            "match": self._match(sources_raw.get("agent")),
             "ws_clients": self.broadcaster.count,
             "build": build_info(),
             "snapshot_at": time.time(),
