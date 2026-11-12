@@ -157,6 +157,7 @@ def mock_services(history, mock_helix, mock_state, mock_arbiter, mock_resolver):
     svc.valorant.configured = False
     svc.database_history = None
     svc.embeddings = None
+    svc.qa = None
     svc.llm_summary = None
     svc.broadcaster_id = "467734820"
     return svc

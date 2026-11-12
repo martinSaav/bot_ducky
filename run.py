@@ -25,6 +25,7 @@ from src.chat_embeddings import EmbeddingWorker
 from src.chat_history import ChatHistory
 from src.chat_history import HistoryEntry
 from src.chat_history_db import PostgresChatHistory
+from src.chat_qa import ChatQA
 from src.llm_summary import LlmSummary
 from src.chat_control import ChatControlServer
 from src.clips.pipeline import ClipPipeline
@@ -203,6 +204,23 @@ async def summarize_later(
     return None
 
 
+async def maintain_embeddings(worker: EmbeddingWorker) -> None:
+    """Startup housekeeping for the !pregunta memory.
+
+    Drops the embeddings of commands and short reactions (until November 2026
+    every message was embedded) and indexes stream summaries that have none.
+    """
+    try:
+        pruned = await worker.prune_noise(cfg.embedding_min_words)
+        if pruned:
+            log.info("Embeddings: removed %d of commands and short messages", pruned)
+        indexed = await worker.backfill_sessions()
+        if indexed:
+            log.info("Embeddings: indexed %d stream summaries", indexed)
+    except Exception:  # noqa: BLE001 - housekeeping must not stop the bot
+        log.exception("Embeddings: startup housekeeping failed")
+
+
 async def wait_for_exit(tasks: dict[str, asyncio.Task], stop: asyncio.Event) -> None:
     """Waits until stop is set or a subsystem crashes.
 
@@ -321,6 +339,7 @@ async def main() -> int:
             database_history = PostgresChatHistory(
                 cfg.database_url,
                 ignored_authors=cfg.chat_ignored_authors | {cfg.bot_login.lower()},
+                embed_min_words=cfg.embedding_min_words,
             )
             try:
                 await database_history.start()
@@ -340,8 +359,13 @@ async def main() -> int:
             log.info("LLM summary: active (%s)", cfg.llm_model)
 
         # --- embeddings (optional: needs the DB and the LLM) ---------------
+        # Without a pool yet (DB still starting), db-reconnect enables them.
         embedding_worker: EmbeddingWorker | None = None
-        if database_history is not None and cfg.llm_api_key:
+        if (
+            database_history is not None
+            and database_history._pool is not None  # noqa: SLF001
+            and cfg.llm_api_key
+        ):
             try:
                 embedding_worker = EmbeddingWorker(
                     pool=database_history._pool,  # noqa: SLF001
@@ -395,8 +419,13 @@ async def main() -> int:
             database_history=database_history,
             embeddings=embedding_worker,
             llm_summary=llm_summary,
+            qa=ChatQA(embedding_worker, llm_summary) if embedding_worker else None,
         )
         tasks: dict[str, asyncio.Task] = {}
+        if embedding_worker is not None:
+            tasks["embeddings-maintenance"] = asyncio.create_task(
+                maintain_embeddings(embedding_worker), name="embeddings-maintenance"
+            )
         stop = asyncio.Event()
         chat_control: ChatControlServer | None = None
 
@@ -501,9 +530,13 @@ async def main() -> int:
                                 )
                                 await ew.start()
                                 svc.embeddings = ew
+                                svc.qa = ChatQA(ew, llm_summary)
                                 database_history._embedding_worker = ew  # noqa: SLF001
                                 status_provider.embeddings_active = True
                                 log.info("Embeddings: active after DB reconnect")
+                                tasks["embeddings-maintenance"] = asyncio.create_task(
+                                    maintain_embeddings(ew), name="embeddings-maintenance"
+                                )
                             except Exception:  # noqa: BLE001
                                 log.exception("Embeddings: failed to start after DB reconnect")
                         return  # connected; no need to keep retrying

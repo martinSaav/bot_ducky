@@ -1,19 +1,34 @@
-"""Embeddings worker for the chat history.
+"""Embeddings for the chat memory behind !pregunta (questions about past streams).
 
-Generates embeddings for the messages stored in PostgreSQL using the
-OpenAI-compatible API (Gemini text-embedding-004) and saves them in the
-chat_embeddings table for semantic search.
+Two things are embedded with the OpenAI-compatible API (Gemini):
+  * chat messages that carry content (should_embed), in the background;
+  * each stream summary, one row per stream.
+
+A single stream (~150 messages) fits in the LLM prompt, so summaries do not
+use retrieval: it is only for questions that span every stream.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Any
 
 import aiohttp
 
 log = logging.getLogger("chat_embeddings")
 
+#: Vector size requested from the API; both tables are created with it.
+DIMENSIONS = 768
+
+#: Messages with fewer words carry no searchable content ("jajaja", "gg wp").
+MIN_WORDS = 4
+
+
+def should_embed(text: str, min_words: int = MIN_WORDS) -> bool:
+    """Whether a chat message is worth indexing: no commands, no short reactions."""
+    text = text.strip()
+    return not text.startswith("!") and len(text.split()) >= min_words
 
 
 class EmbeddingWorker:
@@ -52,58 +67,112 @@ class EmbeddingWorker:
         except asyncio.QueueFull:
             log.warning("Embeddings queue full; dropping message id=%d", message_id)
 
-    async def search(
-        self,
-        query: str,
-        seconds: int,
-        limit: int = 300,
-    ) -> list[dict[str, Any]]:
-        """Finds messages semantically similar to *query* within a time window.
-        Returns a list of dicts with display_name, text and created_at, or an
-        empty list if there are not enough embeddings or the API fails.
+    async def embed_session(self, stream_id: str, summary: str) -> None:
+        """Stores the embedding of a stream summary (one row per stream).
+
+        Never raises: a summary that cannot be embedded only means that stream
+        is harder to find with !pregunta.
         """
-        query_vec = await self._embed_single(query)
-        if query_vec is None:
-            return []
+        vec = await self._embed_single(summary)
+        if vec is None:
+            log.warning("Could not embed the summary of stream %s", stream_id)
+            return
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO session_embeddings (stream_id, embedding)
+                    VALUES ($1, $2::vector)
+                    ON CONFLICT (stream_id) DO UPDATE SET embedding = EXCLUDED.embedding
+                    """,
+                    stream_id,
+                    _vec_to_pg(vec),
+                )
+        except Exception:  # noqa: BLE001 - see docstring
+            log.exception("Could not store the summary embedding of stream %s", stream_id)
+
+    async def backfill_sessions(self) -> int:
+        """Embeds the stored summaries that have no embedding yet. Returns how many."""
         async with self._pool.acquire() as conn:
-            # Requires at least 10 embedded rows in the window before using them,
-            # so the summary is not degraded by too little context.
-            count = await conn.fetchval(
-                """
-                SELECT COUNT(*)
-                FROM chat_messages cm
-                JOIN chat_embeddings ce ON ce.message_id = cm.id
-                WHERE cm.created_at >= NOW() - ($1 * INTERVAL '1 second')
-                """,
-                seconds,
-            )
-            if count < 10:
-                return []
             rows = await conn.fetch(
                 """
-                SELECT cm.author_login, cm.content,
-                       EXTRACT(EPOCH FROM cm.created_at) AS created_at
-                FROM chat_messages cm
-                JOIN chat_embeddings ce ON ce.message_id = cm.id
-                WHERE cm.created_at >= NOW() - ($1 * INTERVAL '1 second')
-                ORDER BY ce.embedding <=> $2::vector
-                LIMIT $3
-                """,
-                seconds,
-                _vec_to_pg(query_vec),
-                limit,
+                SELECT s.twitch_stream_id, s.summary
+                FROM stream_sessions s
+                LEFT JOIN session_embeddings e ON e.stream_id = s.twitch_stream_id
+                WHERE s.summary IS NOT NULL AND e.stream_id IS NULL
+                """
             )
-        # Re-sort chronologically so the LLM gets the thread in order.
-        result = [
-            {
-                "display_name": row["author_login"],
-                "text": row["content"],
-                "created_at": float(row["created_at"]),
-            }
-            for row in rows
+        for row in rows:
+            await self.embed_session(row["twitch_stream_id"], row["summary"])
+        return len(rows)
+
+    async def prune_noise(self, min_words: int = MIN_WORDS) -> int:
+        """Deletes the embeddings of messages should_embed() now skips.
+
+        Until November 2026 every message was embedded, commands and
+        one-word reactions included. Returns how many rows were deleted.
+        """
+        async with self._pool.acquire() as conn:
+            status = await conn.execute(
+                r"""
+                DELETE FROM chat_embeddings ce
+                USING chat_messages cm
+                WHERE cm.id = ce.message_id
+                  AND (cm.content LIKE '!%'
+                       OR array_length(regexp_split_to_array(trim(cm.content), '\s+'), 1) < $1)
+                """,
+                min_words,
+            )
+        try:
+            return int(str(status).rsplit(" ", 1)[-1])
+        except ValueError:
+            return 0
+
+    async def search_history(
+        self, question: str, *, sessions: int = 3, messages: int = 25
+    ) -> dict[str, list[dict[str, str]]]:
+        """Stream summaries and chat messages closest to the question, across
+        every stream, with their (local) dates."""
+        empty: dict[str, list[dict[str, str]]] = {"sessions": [], "messages": []}
+        vec = await self._embed_single(question)
+        if vec is None:
+            return empty
+        literal = _vec_to_pg(vec)
+        async with self._pool.acquire() as conn:
+            session_rows = await conn.fetch(
+                """
+                SELECT s.started_at, s.game_name, s.summary
+                FROM session_embeddings e
+                JOIN stream_sessions s ON s.twitch_stream_id = e.stream_id
+                ORDER BY e.embedding <=> $1::vector
+                LIMIT $2
+                """,
+                literal,
+                sessions,
+            )
+            message_rows = await conn.fetch(
+                """
+                SELECT cm.created_at, cm.author_login, cm.content
+                FROM chat_embeddings ce
+                JOIN chat_messages cm ON cm.id = ce.message_id
+                ORDER BY ce.embedding <=> $1::vector
+                LIMIT $2
+                """,
+                literal,
+                messages,
+            )
+        found_messages = [
+            {"date": _local_date(row["created_at"]), "author": row["author_login"], "text": row["content"]}
+            for row in sorted(message_rows, key=lambda row: row["created_at"])
         ]
-        result.sort(key=lambda m: m["created_at"])
-        return result
+        return {
+            "sessions": [
+                {"date": _local_date(row["started_at"]), "game": row["game_name"] or "", "summary": row["summary"]}
+                for row in session_rows
+            ],
+            # Chronological, so the LLM reads the thread in order.
+            "messages": found_messages,
+        }
 
     async def stop(self) -> None:
         if self._worker is not None:
@@ -116,32 +185,27 @@ class EmbeddingWorker:
     # ------------------------------------------------------------------
 
     async def _ensure_schema(self) -> None:
-        """Creates the chat_embeddings table with the right dimension if it does not exist."""
+        """Creates the embeddings tables if they do not exist."""
         async with self._pool.acquire() as conn:
-            exists = await conn.fetchval(
-                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'chat_embeddings')"
-            )
-            if exists:
-                return
-
-            vec = await self._embed_single("test")
-            if not vec:
-                raise RuntimeError("Could not get a test embedding to compute the dimension.")
-            dim = len(vec)
-
             await conn.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS chat_embeddings (
                     id BIGSERIAL PRIMARY KEY,
                     message_id BIGINT NOT NULL
                         REFERENCES chat_messages(id) ON DELETE CASCADE,
-                    embedding VECTOR({dim}) NOT NULL,
+                    embedding VECTOR({DIMENSIONS}) NOT NULL,
                     CONSTRAINT chat_embeddings_message_id_key UNIQUE (message_id)
                 );
                 CREATE INDEX IF NOT EXISTS chat_embeddings_message_id_idx
                     ON chat_embeddings (message_id);
                 CREATE INDEX IF NOT EXISTS chat_embeddings_embedding_hnsw_idx
                     ON chat_embeddings USING hnsw (embedding vector_cosine_ops);
+                -- One row per stream: few rows, no index needed.
+                CREATE TABLE IF NOT EXISTS session_embeddings (
+                    stream_id VARCHAR(255) PRIMARY KEY
+                        REFERENCES stream_sessions(twitch_stream_id) ON DELETE CASCADE,
+                    embedding VECTOR({DIMENSIONS}) NOT NULL
+                );
                 """
             )
 
@@ -210,7 +274,7 @@ class EmbeddingWorker:
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
-        payload: dict[str, Any] = {"model": self._model, "input": texts, "dimensions": 768}
+        payload: dict[str, Any] = {"model": self._model, "input": texts, "dimensions": DIMENSIONS}
         for attempt in range(4):
             try:
                 async with self._session.post(
@@ -245,6 +309,12 @@ class EmbeddingWorker:
     async def _embed_single(self, text: str) -> list[float] | None:
         result = await self._embed_batch([text])
         return result[0] if result else None
+
+
+def _local_date(value: datetime) -> str:
+    """Date as the streamer lived it (container TZ), not UTC: a 23:00 stream
+    in Argentina is already the next day in UTC."""
+    return value.astimezone().date().isoformat()
 
 
 def _vec_to_pg(vec: list[float]) -> str:

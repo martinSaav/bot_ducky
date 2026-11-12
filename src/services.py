@@ -19,6 +19,7 @@ from .llm_summary import LlmSummary
 
 if TYPE_CHECKING:  # avoids circular imports at runtime
     from .chat_embeddings import EmbeddingWorker
+    from .chat_qa import ChatQA
     from .discord_presence.bot import PresenceBot
     from .twitch.chat import ChatClient
 
@@ -38,6 +39,7 @@ class Services:
     history: ChatHistory
     database_history: "PostgresChatHistory | None" = None
     embeddings: "EmbeddingWorker | None" = None
+    qa: "ChatQA | None" = None
     llm_summary: "LlmSummary | None" = None
     chat: "ChatClient | None" = None
     presence: "PresenceBot | None" = None

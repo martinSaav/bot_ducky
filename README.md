@@ -408,14 +408,38 @@ OpenAI API (e.g. Gemini). `!resumen` prefers the messages stored in PostgreSQL
 and falls back to the in-memory summary if the API fails or the key is empty.
 The client uses a 45-second timeout and retries with exponential backoff.
 
-The embeddings in `chat_embeddings` are generated and stored, ready for semantic
-search (`EmbeddingWorker.search`), but no command uses them yet.
+Summaries do not use semantic search: a stream averages ~150 messages, so it
+fits in the prompt whole. Searching by meaning only pays off across streams,
+which is what `!pregunta` does.
+
+### Questions about past streams (`!pregunta`)
+
+```text
+!pregunta que dijeron de la skin nueva del vandal
+!pregunta cuando jugo lol por ultima vez
+```
+
+The bot finds the 3 stream summaries and the 25 chat messages closest in
+meaning to the question, across every stream, and the LLM answers in one or two
+sentences using only that material, with dates. If the database has nothing to
+search, it says so without calling the LLM. 60-second cooldown (mods skip it).
+
+What gets indexed (as embeddings, in PostgreSQL with `pgvector`):
+
+- each stream summary (`session_embeddings`), when it is generated;
+- chat messages with content (`chat_embeddings`): not commands, and at least
+  `EMBEDDING_MIN_WORDS` words (4 by default). Reactions like "jajaja" or
+  "gg wp" carry nothing to find.
+
+At startup the bot indexes the summaries that have no embedding yet and drops
+the embeddings of commands and short messages (until November 2026 every
+message was embedded). How it flows is in [`docs/embeddings.md`](docs/embeddings.md).
 
 **Persistence across restarts:** set `DATABASE_URL` to a PostgreSQL database
 with the `pgvector` extension installed. The worker stores the messages and
 generates their embeddings in the background, without blocking the Twitch
-connection. The schema (tables `chat_messages`, `chat_embeddings` and
-`stream_sessions`) is created automatically at startup.
+connection. The schema (tables `chat_messages`, `chat_embeddings`,
+`session_embeddings` and `stream_sessions`) is created automatically at startup.
 
 Nightbot and the bot's own account are excluded from the history automatically.
 You can add other accounts in `CHAT_IGNORED_AUTHORS` (in `.env`),
@@ -488,6 +512,7 @@ The commands and their replies are in Spanish because viewers use them.
 | `!vmatch` | `!ultima` | Map, agent, K/D/A and result of the last match |
 | `!uptime` | | Time live |
 | `!clip` | | Creates a clip (30 s cooldown) |
+| `!pregunta <pregunta>` | `!ask` | Answers a question about past streams (60 s cooldown) |
 | `!comandos` | `!ayuda` | Lists the available commands |
 
 The first three accept a Riot ID: `!lrank Alguien#LAS` looks up that account

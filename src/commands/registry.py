@@ -119,6 +119,8 @@ class Registry:
                  help="list of commands", cooldown=20)
         self.add("resumen", self.cmd_summary, aliases=("summary",),
              help="summarizes recent chat", cooldown=60)
+        self.add("pregunta", self.cmd_question, aliases=("ask",),
+                 help="answers questions about past streams", cooldown=60)
         self.add("lrank", self.cmd_rank, aliases=("rank", "elo", "lol"),
                  help="streamer's LoL rank", cooldown=10)
         self.add("lmatch", self.cmd_live, aliases=("partida", "live", "enpartida"),
@@ -229,6 +231,13 @@ class Registry:
             f"Participantes: {people_text}."
         )
 
+
+    async def cmd_question(self, ctx: Ctx) -> str:
+        if ctx.svc.qa is None:
+            return "La memoria del chat no está activa (necesita la base de datos y el LLM)."
+        if not ctx.argstr:
+            return f"Uso: {PREFIX}pregunta <algo sobre streams anteriores>"
+        return await ctx.svc.qa.answer(ctx.argstr)
 
     @staticmethod
     def _summary_seconds(value: str) -> int | None:

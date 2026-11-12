@@ -79,6 +79,8 @@ class Config:
     llm_min_stream_minutes = _int("LLM_MIN_STREAM_MINUTES", 15)
     embedding_model = _str("EMBEDDING_MODEL", "models/gemini-embedding-2")
     embedding_batch_size = _int("EMBEDDING_BATCH_SIZE", 100)
+    # Messages with fewer words (or commands) are not embedded for !pregunta.
+    embedding_min_words = _int("EMBEDDING_MIN_WORDS", 4)
 
     chat_ignored_authors = {
         author.strip().lower()

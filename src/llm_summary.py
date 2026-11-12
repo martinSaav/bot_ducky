@@ -1,4 +1,4 @@
-"""OpenAI-compatible LLM client for concise chat summaries."""
+"""OpenAI-compatible LLM client: chat summaries and !pregunta answers."""
 from __future__ import annotations
 
 import asyncio
@@ -40,13 +40,8 @@ class LlmSummary:
         transcript = "\n".join(
             f"{message.display_name}: {message.text}" for message in selected
         )
-        payload = {
-            "model": self.model,
-            "temperature": 0.2,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
+        return await self.complete(
+                    (
                         "Resume un chat comunitario de Twitch en español argentino. "
                         "VALORANT es el nombre de un videojuego de disparos; "
                         "League of Legends es otro videojuego. Si el juego detectado "
@@ -58,14 +53,22 @@ class LlmSummary:
                         "no cites información privada y usa 'no identificado' cuando no "
                         "haya evidencia suficiente."
                     ),
-                },
-                {
-                    "role": "user",
-                    "content": (
+                    (
                         f"Window: {window}\nGame detected by the bot: {game}\n"
                         f"Messages ({len(selected)} of {len(messages)}):\n{transcript}"
                     ),
-                },
+        )
+
+    async def complete(self, system: str, user: str, *, temperature: float = 0.2) -> str | None:
+        """One chat completion. Retries 429/5xx and network errors; None on failure."""
+        if not self.configured:
+            return None
+        payload = {
+            "model": self.model,
+            "temperature": temperature,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
             ],
         }
         headers = {
@@ -84,14 +87,14 @@ class LlmSummary:
                     if response.status == 429 or response.status >= 500:
                         raise _RetryableLlmError(response.status, body)
                     if response.status >= 400:
-                        log.warning("LLM summary failed with HTTP %s: %s", response.status, body)
+                        log.warning("LLM request failed with HTTP %s: %s", response.status, body)
                         return None
                     content = ((body.get("choices") or [{}])[0].get("message") or {}).get("content")
                     return content.strip() if isinstance(content, str) and content.strip() else None
             except _RetryableLlmError as exc:
                 if attempt == 4:
                     log.warning(
-                        "LLM summary failed after retries: HTTP %s: %s",
+                        "LLM request failed after retries: HTTP %s: %s",
                         exc.status,
                         exc.body,
                     )
@@ -99,7 +102,7 @@ class LlmSummary:
                 await asyncio.sleep(2**attempt)
             except (asyncio.TimeoutError, aiohttp.ClientError) as exc:
                 if attempt == 4:
-                    log.warning("LLM summary failed after retries: %s", exc)
+                    log.warning("LLM request failed after retries: %s", exc)
                     return None
                 await asyncio.sleep(2**attempt)
         return None

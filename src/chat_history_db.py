@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from .chat_embeddings import MIN_WORDS, should_embed
 from .twitch.chat import ChatMessage
 
 if TYPE_CHECKING:
@@ -48,6 +49,7 @@ class PostgresChatHistory:
         queue_size: int = 2_000,
         ignored_authors: set[str] | None = None,
         embedding_worker: "EmbeddingWorker | None" = None,
+        embed_min_words: int = MIN_WORDS,
     ):
         self.database_url = database_url
         self._queue: asyncio.Queue[ChatMessage | None] = asyncio.Queue(maxsize=queue_size)
@@ -55,6 +57,7 @@ class PostgresChatHistory:
         self._pool = None
         self._worker: asyncio.Task[None] | None = None
         self._embedding_worker = embedding_worker
+        self._embed_min_words = embed_min_words
 
     async def start(self) -> None:
         import asyncpg
@@ -82,7 +85,13 @@ class PostgresChatHistory:
                 return
             try:
                 message_id = await self._insert(message)
-                if message_id is not None and self._embedding_worker is not None:
+                # Commands and short reactions are stored but not embedded:
+                # they carry nothing !pregunta could find.
+                if (
+                    message_id is not None
+                    and self._embedding_worker is not None
+                    and should_embed(message.text, self._embed_min_words)
+                ):
                     self._embedding_worker.enqueue(message_id, message.text)
             except Exception:  # noqa: BLE001 - persistence must not kill the bot
                 log.exception("Could not persist chat message %s", message.message_id)
@@ -205,6 +214,8 @@ class PostgresChatHistory:
                 message_count,
                 summary,
             )
+        if summary:
+            await self._embed_summary(stream_id, summary)
 
     async def set_session_summary(self, stream_id: str, summary: str) -> None:
         """Stores a summary that arrived after the session was closed."""
@@ -216,6 +227,12 @@ class PostgresChatHistory:
                 stream_id,
                 summary,
             )
+        await self._embed_summary(stream_id, summary)
+
+    async def _embed_summary(self, stream_id: str, summary: str) -> None:
+        """Makes the stream findable by !pregunta through its summary."""
+        if self._embedding_worker is not None:
+            await self._embedding_worker.embed_session(stream_id, summary)
 
     async def stop(self) -> None:
         if self._worker is not None:
