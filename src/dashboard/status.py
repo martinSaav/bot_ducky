@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from ..build_info import build_info
+from ..config import cfg
 
 if TYPE_CHECKING:
     from ..gamesource import GameArbiter, Report
@@ -195,6 +196,9 @@ class StatusProvider:
                 "prediction_id": active_pred.get("prediction_id", ""),
                 "game": active_pred.get("game", ""),
                 "outcomes": active_pred.get("outcomes", {}),
+                # None for predictions saved before created_at existed.
+                "created_at": active_pred.get("created_at"),
+                "window": cfg.prediction_window,
             }
 
         # Recent chat history (last 20)
@@ -215,7 +219,6 @@ class StatusProvider:
         }
 
         # Valorant (HenrikDev configured)
-        from ..config import cfg
         val_status = {
             "configured": bool(cfg.henrik_api_key and cfg.valorant_id),
         }
@@ -247,6 +250,11 @@ class StatusProvider:
                 "valorant": val_status,
             },
             "stream": dict(self._stream),
+            "chat": {
+                # Average of the last 5 minutes: steadier than the last minute alone.
+                "per_minute": round(len(self.history.since(300)) / 5, 1),
+                "last_hour": len(self.history.since(3600)),
+            },
             "match": self._match(sources_raw.get("agent")),
             "ws_clients": self.broadcaster.count,
             "build": build_info(),

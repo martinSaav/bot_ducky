@@ -1,6 +1,5 @@
 import { Component, inject } from '@angular/core';
 import { AsyncPipe } from '@angular/common';
-import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { BotApiService } from '../../services/bot-api';
 import { ClockService, formatElapsed } from '../../services/clock';
@@ -29,10 +28,10 @@ const STEPS: Record<'lol' | 'valorant', Step[]> = {
 @Component({
   selector: 'app-match-card',
   standalone: true,
-  imports: [AsyncPipe, MatCardModule, MatIconModule],
+  imports: [AsyncPipe, MatIconModule],
   template: `
     @if (api.status$ | async; as s) {
-      <mat-card class="dash-card match-card" [class.lol]="kind(s.match) === 'lol'" [class.valorant]="kind(s.match) === 'valorant'">
+      <section class="panel match-card" [class.lol]="kind(s.match) === 'lol'" [class.valorant]="kind(s.match) === 'valorant'">
         @if (s.match; as m) {
           <div class="match-layout">
             <div class="match-main">
@@ -92,18 +91,18 @@ const STEPS: Record<'lol' | 'valorant', Step[]> = {
             </div>
           </div>
         }
-      </mat-card>
+      </section>
     }
   `,
   styles: [`
     :host { display: block; }
-    .match-card { padding: 20px 24px; --accent: #a78bfa; border-left: 3px solid var(--accent) !important; }
-    .match-card.lol { --accent: #c8aa6e; }
-    .match-card.valorant { --accent: #ff4655; }
+    .match-card { padding: 20px 24px; --game: var(--accent-soft); border-left: 3px solid var(--game); }
+    .match-card.lol { --game: #c8aa6e; }
+    .match-card.valorant { --game: #ff4655; }
     .match-layout { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
     .match-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
     .match-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .game { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--accent); }
+    .game { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--game); }
     .queue { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 12px; background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.75); }
     .timer { display: inline-flex; align-items: center; gap: 4px; font-family: 'Roboto Mono', monospace; font-size: 14px; color: rgba(255,255,255,0.8); }
     .timer mat-icon { font-size: 16px; width: 16px; height: 16px; color: rgba(255,255,255,0.45); }
@@ -115,7 +114,7 @@ const STEPS: Record<'lol' | 'valorant', Step[]> = {
     .steps li.done { color: rgba(255,255,255,0.55); }
     .steps li.done .dot { background: rgba(255,255,255,0.45); }
     .steps li.current { color: #fff; font-weight: 600; }
-    .steps li.current .dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .steps li.current .dot { background: var(--game); box-shadow: 0 0 8px var(--game); }
 
     .score { display: grid; grid-template-columns: auto auto auto; align-items: center; column-gap: 14px; text-align: center; }
     .score .side { display: flex; flex-direction: column; }

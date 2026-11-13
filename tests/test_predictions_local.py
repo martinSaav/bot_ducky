@@ -505,3 +505,25 @@ class TestMatchSince:
         await arbiter.report("agent", "VALORANT", match_id=None,
                              metadata={"source": "presence", "phase": "menus"}, stale_after=210)
         assert arbiter.sources()["agent"].match_since is None
+
+
+class TestPredictionOpenTime:
+
+    async def test_start_WhenPredictionCreated_RecordsWhenItOpened(
+        self, arbiter, mock_helix, mock_state, runtime_cfg
+    ):
+        before = time.time()
+        arbiter._reports["agent"] = agent("VALORANT", "val-1", source="presence", phase="pregame")
+
+        await arbiter._maybe_start_prediction("VALORANT")
+
+        assert mock_state.get("prediction_active")["created_at"] >= before
+
+    async def test_vgame_WhenPredictionCreated_RecordsWhenItOpened(
+        self, arbiter, mock_helix, mock_state, runtime_cfg
+    ):
+        before = time.time()
+
+        await arbiter.confirm_valorant_prediction()
+
+        assert mock_state.get("prediction_active")["created_at"] >= before

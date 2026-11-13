@@ -15,6 +15,16 @@ export interface Prediction {
   prediction_id: string;
   game: string;
   outcomes: PredictionOutcomes;
+  /** Epoch seconds when it opened; null for predictions saved before this existed. */
+  created_at: number | null;
+  /** Voting window in seconds. */
+  window: number;
+}
+
+export interface ChatActivity {
+  /** Average over the last 5 minutes. */
+  per_minute: number;
+  last_hour: number;
 }
 
 export interface LolStatus {
@@ -104,6 +114,7 @@ export interface BotStatus {
   build?: BuildInfo;
   stream?: StreamStatus;
   match?: MatchStatus | null;
+  chat?: ChatActivity;
 }
 
 export interface WsEvent {

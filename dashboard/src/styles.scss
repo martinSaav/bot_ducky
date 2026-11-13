@@ -16,6 +16,24 @@ $dashboard-theme: mat.define-theme((
 
 :root {
   @include mat.all-component-themes($dashboard-theme);
+
+  // Design tokens: every component uses these, so the cards look like one product.
+  --bg: #0b0b12;
+  --surface: rgba(255, 255, 255, 0.035);
+  --border: rgba(255, 255, 255, 0.08);
+  --text-1: rgba(255, 255, 255, 0.92);
+  --text-2: rgba(255, 255, 255, 0.70);
+  --text-3: rgba(255, 255, 255, 0.50);
+  --text-4: rgba(255, 255, 255, 0.32);
+  --accent: #9147ff;
+  --accent-soft: #b794ff;
+  --accent-bg: rgba(145, 71, 255, 0.14);
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --err: #f87171;
+  --off: rgba(255, 255, 255, 0.22);
+  --radius: 14px;
+  --gap: 16px;
 }
 
 // ─── Google Fonts ────────────────────────────────────────────────────────────
@@ -30,8 +48,8 @@ html, body {
   padding: 0;
   height: 100%;
   font-family: 'Inter', sans-serif;
-  background: #0d0d14;
-  color: rgba(255, 255, 255, 0.88);
+  background: var(--bg);
+  color: var(--text-1);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -41,70 +59,85 @@ html, body {
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(ellipse at 20% 10%, rgba(145, 71, 255, 0.12) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 80%, rgba(56, 189, 248, 0.07) 0%, transparent 50%),
-    #0d0d14;
+    radial-gradient(ellipse at 15% 0%, rgba(145, 71, 255, 0.10) 0%, transparent 55%),
+    var(--bg);
 }
 
 // ─── Topbar ──────────────────────────────────────────────────────────────────
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(13, 13, 20, 0.8);
+  gap: 24px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(11, 11, 18, 0.85);
   backdrop-filter: blur(12px);
   position: sticky;
   top: 0;
   z-index: 100;
 }
 
-.topbar-left {
+.brand {
   display: flex;
   align-items: center;
   gap: 10px;
+  white-space: nowrap;
 }
 
 .logo-dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #9147ff;
+  background: var(--accent);
   box-shadow: 0 0 10px rgba(145, 71, 255, 0.7);
-  animation: pulse-logo 2s ease-in-out infinite;
 }
 
-@keyframes pulse-logo {
-  0%, 100% { box-shadow: 0 0 10px rgba(145, 71, 255, 0.7); }
-  50%       { box-shadow: 0 0 20px rgba(145, 71, 255, 1); }
-}
-
-.topbar-title {
-  font-size: 16px;
+.brand-title {
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #fff;
+  letter-spacing: -0.01em;
 }
 
-.topbar-sub {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 400;
+.brand-sub {
+  font-size: 12px;
+  color: var(--text-4);
+}
+
+.topbar-stream {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
 }
 
 .live-badge {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: 20px;
-  padding: 4px 12px;
+  padding: 3px 11px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.1em;
   color: #f87171;
+  white-space: nowrap;
+}
+
+.live-badge.offline,
+.live-badge.unknown {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border);
+  color: var(--text-3);
 }
 
 .live-dot {
@@ -120,25 +153,9 @@ html, body {
   50% { opacity: 0.2; }
 }
 
-.live-badge.offline,
-.live-badge.unknown {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.15);
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.topbar-stream {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex: 1;
-  min-width: 0;
-  margin: 0 24px;
-}
-
 .stream-title {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -150,17 +167,35 @@ html, body {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-2);
   white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 
   mat-icon {
     font-size: 16px;
     width: 16px;
     height: 16px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--text-4);
   }
 }
+
+.updated {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.conn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.updated.stale { color: var(--err); }
+.updated.stale .conn-dot { background: var(--err); }
 
 .build-chip {
   display: inline-flex;
@@ -168,11 +203,10 @@ html, body {
   gap: 4px;
   font-family: 'Roboto Mono', monospace;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-4);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 2px 8px;
-  white-space: nowrap;
 
   mat-icon {
     font-size: 14px;
@@ -181,96 +215,126 @@ html, body {
   }
 }
 
+// ─── Banner (bot unreachable / token rejected) ──────────────────────────────
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 24px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.08);
+  color: var(--err);
+  font-size: 13px;
+
+  mat-icon { font-size: 18px; width: 18px; height: 18px; }
+}
+
 // ─── Dashboard grid ──────────────────────────────────────────────────────────
 .dash-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-areas:
-    "match match match"
-    "col1 col2 col3"
-    "col4 col5 col6"
-    "full full full";
-  gap: 16px;
-  padding: 20px 24px;
-  flex: 1;
+    "match      match  match"
+    "stats      stats  stats"
+    "prediction chat   health"
+    "logs       logs   logs";
+  gap: var(--gap);
+  padding: 20px 24px 32px;
 }
 
-.grid-col-1  { grid-area: col1; }
-.grid-col-2  { grid-area: col2; }
-.grid-col-3  { grid-area: col3; }
-.grid-col-4  { grid-area: col4; }
-.grid-col-5  { grid-area: col5; }
-.grid-col-6  { grid-area: col6; }
-.grid-col-full { grid-area: full; }
-.grid-match { grid-area: match; }
+// Cards in the same row share its height, so rows end on one line.
+.dash-grid > div > * {
+  display: block;
+  height: 100%;
+}
+
+.dash-grid .panel {
+  height: 100%;
+}
+
+.area-match      { grid-area: match; }
+.area-stats      { grid-area: stats; }
+.area-prediction { grid-area: prediction; }
+.area-chat       { grid-area: chat; }
+.area-health     { grid-area: health; }
+.area-logs       { grid-area: logs; }
 
 @media (max-width: 1100px) {
   .dash-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas:
-      "match match"
-      "col1 col2"
-      "col3 col4"
-      "col5 col6"
-      "full full";
+      "match      match"
+      "stats      stats"
+      "prediction health"
+      "chat       health"
+      "logs       logs";
   }
 }
 
 @media (max-width: 700px) {
   .dash-grid {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "match" "col1" "col2" "col3" "col4" "col5" "col6" "full";
-    padding: 12px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "match" "stats" "prediction" "chat" "health" "logs";
+    padding: 12px 16px 24px;
     gap: 12px;
   }
 }
 
-// ─── Cards ───────────────────────────────────────────────────────────────────
-.dash-card {
-  background: rgba(255, 255, 255, 0.04) !important;
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.09) !important;
-  border-radius: 16px !important;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
-  height: 100%;
+@media (max-width: 900px) {
+  .topbar { flex-wrap: wrap; gap: 8px 16px; padding: 10px 16px; }
+  .topbar-stream { order: 3; flex-basis: 100%; }
+  .brand-sub { display: none; }
+  .banner { margin: 12px 16px 0; }
+}
 
-  &:hover {
-    border-color: rgba(145, 71, 255, 0.25) !important;
-    box-shadow: 0 0 24px rgba(145, 71, 255, 0.08);
+// ─── Panels: the card every component uses ──────────────────────────────────
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  transition: border-color 0.2s ease;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+
+  mat-icon {
+    font-size: 18px;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--accent-soft);
+    background: var(--accent-bg);
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-1);
   }
 }
 
-.card-icon {
-  color: #9147ff !important;
-  background: rgba(145, 71, 255, 0.15) !important;
-  border-radius: 8px !important;
-  padding: 4px !important;
-  font-size: 20px !important;
-  width: 32px !important;
-  height: 32px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+.card-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: right;
+
+  &.attention { color: var(--warn); }
 }
 
-mat-card-title {
-  font-size: 15px !important;
-  font-weight: 600 !important;
-  color: rgba(255, 255, 255, 0.92) !important;
-}
-
-mat-card-subtitle {
-  font-size: 12px !important;
-  color: rgba(255, 255, 255, 0.4) !important;
-}
-
-mat-card-content {
-  padding-top: 12px !important;
-}
-
-@media (max-width: 900px) {
-  .topbar { flex-wrap: wrap; gap: 8px; }
-  .topbar-stream { order: 3; flex-basis: 100%; margin: 0; flex-wrap: wrap; gap: 10px; }
-  .stream-title { flex-basis: 100%; order: 5; }
+.placeholder {
+  color: var(--text-4);
+  font-size: 13px;
+  padding: 12px 0;
 }

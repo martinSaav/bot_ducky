@@ -143,3 +143,52 @@ class TestQueueLabel:
     def test_queueLabel_WhenMissing_ReturnsNone(self):
         from src.dashboard.status import queue_label
         assert queue_label(None) is None
+
+
+# ===========================================================================
+# Chat activity and prediction timing (stat strip and prediction countdown)
+# ===========================================================================
+
+def _entry(seconds_ago: float):
+    from src.chat_history import HistoryEntry
+    return HistoryEntry("1", "viewer", "hola que tal", time.time() - seconds_ago)
+
+
+class TestChatActivity:
+
+    def test_snapshot_ReportsMessagesPerMinuteAndLastHour(self, tmp_path):
+        provider = _provider(tmp_path)
+        # 10 messages in the last 5 minutes, 3 more earlier in the hour, 1 older.
+        for seconds_ago in [10, 30, 60, 90, 120, 150, 180, 200, 250, 290, 900, 1800, 3000, 5000]:
+            provider.history._messages.append(_entry(seconds_ago))
+
+        assert provider.snapshot()["chat"] == {"per_minute": 2.0, "last_hour": 13}
+
+    def test_snapshot_WhenChatIsQuiet_ReportsZero(self, tmp_path):
+        assert _provider(tmp_path).snapshot()["chat"] == {"per_minute": 0.0, "last_hour": 0}
+
+
+class TestPredictionTiming:
+
+    async def test_snapshot_Prediction_IncludesWhenItOpenedAndTheVotingWindow(self, tmp_path):
+        from src.config import cfg
+
+        provider = _provider(tmp_path)
+        await provider.state.set("prediction_active", {
+            "match_key": "valorant:val-1", "prediction_id": "p1", "game": "valorant",
+            "outcomes": {"gana": "o1", "pierde": "o2"}, "created_at": 1_000.0,
+        })
+
+        prediction = provider.snapshot()["prediction"]
+
+        assert prediction["created_at"] == 1_000.0
+        assert prediction["window"] == cfg.prediction_window
+
+    async def test_snapshot_Prediction_WhenSavedBeforeThisChange_HasNoOpenTime(self, tmp_path):
+        provider = _provider(tmp_path)
+        await provider.state.set("prediction_active", {
+            "match_key": "lol:55", "prediction_id": "p1", "game": "league of legends",
+            "outcomes": {"gana": "o1", "pierde": "o2"},
+        })
+
+        assert provider.snapshot()["prediction"]["created_at"] is None

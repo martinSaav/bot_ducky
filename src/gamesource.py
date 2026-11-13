@@ -294,6 +294,8 @@ class GameArbiter:
                         "prediction_id": str(prediction.get("id", "")),
                         "outcomes": outcomes,
                         "game": normalized,
+                        # For the dashboard's "voting closes in" countdown.
+                        "created_at": time.time(),
                     },
                 )
                 await self.state.set("prediction_created_key", match_key)
@@ -345,6 +347,7 @@ class GameArbiter:
                 "prediction_id": str(prediction.get("id", "")),
                 "outcomes": outcomes,
                 "game": normalized,
+                "created_at": time.time(),
             },
         )
         await self.state.set("prediction_session", {"game": normalized, "key": match_key})

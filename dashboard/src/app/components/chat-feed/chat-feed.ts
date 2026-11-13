@@ -1,6 +1,5 @@
 import { Component, inject, OnInit, signal, ElementRef, ViewChild, AfterViewChecked } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { WsService } from '../../services/ws';
 import { BotApiService } from '../../services/bot-api';
@@ -11,15 +10,14 @@ const MAX_MESSAGES = 100;
 @Component({
   selector: 'app-chat-feed',
   standalone: true,
-  imports: [DatePipe, MatCardModule, MatIconModule],
+  imports: [DatePipe, MatIconModule],
   template: `
-    <mat-card class="dash-card chat-card">
-      <mat-card-header>
-        <mat-icon mat-card-avatar class="card-icon">forum</mat-icon>
-        <mat-card-title>Live chat</mat-card-title>
-        <mat-card-subtitle>{{ messages().length }} messages</mat-card-subtitle>
-      </mat-card-header>
-      <mat-card-content>
+    <section class="panel chat-card">
+      <header class="card-head">
+        <mat-icon>forum</mat-icon>
+        <h2>Live chat</h2>
+        <span class="card-meta">{{ messages().length }} recent</span>
+      </header>
         <div class="chat-feed" #feedEl>
           @for (msg of messages(); track msg.ts) {
             <div class="chat-msg">
@@ -31,17 +29,16 @@ const MAX_MESSAGES = 100;
             <p class="empty-chat">Waiting for chat messages…</p>
           }
         </div>
-      </mat-card-content>
-    </mat-card>
+    </section>
   `,
   styles: [`
-    .chat-card { height: 100%; display: flex; flex-direction: column; }
-    .chat-feed { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
+    .chat-card { display: flex; flex-direction: column; }
+    .chat-feed { flex: 1; min-height: 120px; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
     .chat-feed::-webkit-scrollbar { width: 4px; }
     .chat-feed::-webkit-scrollbar-thumb { background: rgba(167,139,250,0.3); border-radius: 2px; }
     .chat-msg { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; border-radius: 6px; transition: background 0.2s; font-size: 13px; }
     .chat-msg:hover { background: rgba(255,255,255,0.04); }
-    .msg-author { color: #a78bfa; font-weight: 700; flex-shrink: 0; }
+    .msg-author { color: var(--accent-soft); font-weight: 700; flex-shrink: 0; }
     .msg-text { flex: 1; color: rgba(255,255,255,0.85); word-break: break-word; }
     .msg-time { color: rgba(255,255,255,0.25); font-size: 10px; font-family: monospace; flex-shrink: 0; }
     .empty-chat { color: rgba(255,255,255,0.3); font-size: 13px; padding: 16px 0; text-align: center; }
