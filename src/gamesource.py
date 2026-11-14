@@ -94,6 +94,8 @@ class GameArbiter:
         #: Match that could not get a prediction because another one was
         #: still open on Twitch. Retried as soon as that one closes.
         self._waiting_key: str | None = None
+        #: Prediction whose "no result yet" was already logged.
+        self._waiting_logged: str | None = None
 
     # ------------------------------------------------------------------
     def sources(self) -> dict[str, Report]:
@@ -518,6 +520,9 @@ class GameArbiter:
             if not prediction:
                 return
             try:
+                if self._valorant_dodged(prediction):
+                    await self._cancel_dodged(prediction)
+                    return
                 won = await self._prediction_result(prediction)
                 if won is not None:
                     outcome = "gana" if won else "pierde"
@@ -567,15 +572,41 @@ class GameArbiter:
                 if local is not None:
                     log.info("Valorant result from the final score: %s", "win" if local else "loss")
                     return local
-            log.info("No Valorant result yet: use !vwin or !vloss if it does not arrive")
+            # Once per prediction: this runs on every retry, every minute.
+            if self._waiting_logged != match_key:
+                log.info("No Valorant result yet: use !vwin or !vloss if it does not arrive")
+                self._waiting_logged = match_key
             return None
         return None
 
-    def _check_valorant_prediction_finished(self, prediction: dict[str, Any]) -> None:
-        """Detect a finished Valorant match while the game is still VALORANT."""
+    def _valorant_dodged(self, prediction: dict[str, Any]) -> bool:
+        """The match ended 0-0: someone dodged in agent select and it never started."""
         match_key = str(prediction.get("match_key", ""))
         match_id = match_key.removeprefix("valorant:")
-        if self._local_valorant_result(match_id) is not None:
+        if not match_key.startswith("valorant:") or match_id.startswith("manual:"):
+            return False
+        report = self._local("valorant")
+        if report is None:
+            return False
+        last = (report.metadata or {}).get("last_match") or {}
+        score = last.get("score") or {}
+        return str(last.get("id", "")) == match_id and score.get("ally") == 0 and score.get("enemy") == 0
+
+    async def _cancel_dodged(self, prediction: dict[str, Any]) -> None:
+        """No match, no winner: cancel so Twitch refunds the points and frees
+        the slot for the next prediction."""
+        await self.cancel_prediction()
+        log.info("Valorant match %s never started (0-0): prediction cancelled", prediction.get("match_key"))
+        if self.announce and cfg.autocat_announce:
+            await self.announce(cfg.say_as(
+                "La partida no llegó a empezar: prediction cancelada, se devolvieron los puntos."
+            ))
+
+    def _check_valorant_prediction_finished(self, prediction: dict[str, Any]) -> None:
+        """Detect a finished (or dodged) Valorant match while the game is still VALORANT."""
+        match_key = str(prediction.get("match_key", ""))
+        match_id = match_key.removeprefix("valorant:")
+        if self._local_valorant_result(match_id) is not None or self._valorant_dodged(prediction):
             self._schedule_prediction_result()
 
     async def _check_lol_prediction_finished(self, prediction: dict[str, Any]) -> None:

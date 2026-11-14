@@ -457,7 +457,7 @@ the streamer's PC. It does not depend on any API key:
 | Game | Created | Resolved |
 |---|---|---|
 | League of Legends | When the match starts (not in champion select, because of dodges) | With the local client's result |
-| Valorant | On entering agent select | With the final score, when she goes back to the menus (a tie stays manual) |
+| Valorant | On entering agent select | With the final score, when she goes back to the menus. A dodge (0–0) cancels it and refunds the points; a played tie stays manual |
 
 The public APIs remain as a fallback when the agent has no data from the
 client. For LoL, Spectator-V5 to know whether there is a match and Match-V5 for

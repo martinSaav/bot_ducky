@@ -527,3 +527,91 @@ class TestPredictionOpenTime:
         await arbiter.confirm_valorant_prediction()
 
         assert mock_state.get("prediction_active")["created_at"] >= before
+
+
+# ---------------------------------------------------------------------------
+# Dodges: a Valorant match that ends 0-0 never started
+# ---------------------------------------------------------------------------
+
+def _valorant_prediction() -> dict:
+    return {
+        "match_key": "valorant:val-1", "prediction_id": "p1", "game": "valorant",
+        "outcomes": {"gana": "o-win", "pierde": "o-loss"},
+    }
+
+
+class TestValorantDodge:
+    """Valorant predictions open in agent select. If someone dodges, the agent
+    reports the match as finished 0-0: it never started, so there is no winner
+    and the prediction must not stay open (Twitch allows only one)."""
+
+    async def test_resolve_WhenMatchDodged_CancelsAndRefunds(self, arbiter, mock_helix, mock_state, runtime_cfg):
+        mock_helix.cancel_prediction = AsyncMock()
+        await mock_state.set("prediction_active", _valorant_prediction())
+        arbiter._reports["agent"] = agent(
+            "VALORANT", None, source="presence", phase="menus",
+            last_match={"id": "val-1", "score": {"ally": 0, "enemy": 0}},
+        )
+
+        with patch("src.gamesource.asyncio.sleep", AsyncMock()):
+            await arbiter._resolve_prediction_later()
+
+        mock_helix.cancel_prediction.assert_awaited_once_with("467734820", "p1")
+        mock_helix.resolve_prediction.assert_not_called()
+        assert mock_state.get("prediction_active") is None
+
+    async def test_resolve_WhenMatchDodged_TellsTheChat(self, arbiter, mock_helix, mock_state, runtime_cfg):
+        runtime_cfg.autocat_announce = True
+        runtime_cfg.say_as = lambda text: text
+        arbiter.announce = AsyncMock()
+        mock_helix.cancel_prediction = AsyncMock()
+        await mock_state.set("prediction_active", _valorant_prediction())
+        arbiter._reports["agent"] = agent(
+            "VALORANT", None, source="presence", phase="menus",
+            last_match={"id": "val-1", "score": {"ally": 0, "enemy": 0}},
+        )
+
+        with patch("src.gamesource.asyncio.sleep", AsyncMock()):
+            await arbiter._resolve_prediction_later()
+
+        message = arbiter.announce.await_args.args[0].lower()
+        assert "cancel" in message and "puntos" in message
+
+    async def test_apply_WhenMatchDodgedAndStillInValorant_SchedulesTheCancel(self, arbiter, mock_state, runtime_cfg):
+        await mock_state.set("prediction_active", _valorant_prediction())
+        arbiter._reports["agent"] = agent(
+            "VALORANT", None, source="presence", phase="menus",
+            last_match={"id": "val-1", "score": {"ally": 0, "enemy": 0}},
+        )
+        arbiter._schedule_prediction_result = MagicMock()
+
+        await arbiter.apply()
+
+        arbiter._schedule_prediction_result.assert_called_once()
+
+    async def test_resolve_WhenPlayedMatchEndsTied_DoesNotCancel(self, arbiter, mock_helix, mock_state, runtime_cfg):
+        # 12-12 was played: a real tie stays manual (!vwin / !vloss / !vcancel).
+        mock_helix.cancel_prediction = AsyncMock()
+        await mock_state.set("prediction_active", _valorant_prediction())
+        arbiter._reports["agent"] = agent(
+            "VALORANT", None, source="presence", phase="menus",
+            last_match={"id": "val-1", "score": {"ally": 12, "enemy": 12}},
+        )
+
+        with patch("src.gamesource.asyncio.sleep", AsyncMock()):
+            await arbiter._resolve_prediction_later()
+
+        mock_helix.cancel_prediction.assert_not_called()
+        assert mock_state.get("prediction_active") is not None
+
+    async def test_resolve_WhenNoResultYet_LogsTheWaitOnce(self, arbiter, mock_state, runtime_cfg, caplog):
+        # It used to log "No Valorant result yet" on every retry, every minute.
+        await mock_state.set("prediction_active", _valorant_prediction())
+        arbiter._reports["agent"] = agent("VALORANT", "val-1", source="presence", phase="in_game")
+
+        with caplog.at_level(logging.INFO, logger="gamesource"), \
+             patch("src.gamesource.asyncio.sleep", AsyncMock()):
+            await arbiter._resolve_prediction_later()
+            await arbiter._resolve_prediction_later()
+
+        assert caplog.text.count("No Valorant result yet") == 1

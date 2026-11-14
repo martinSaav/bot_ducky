@@ -159,6 +159,6 @@ Back in the lobby, `match_id` becomes `null` and the finished match moves to `me
 | Game | Created | Resolved |
 |---|---|---|
 | League of Legends | When the match starts, with the local `gameId`. Fallback: Spectator-V5 | With the local client's result. Fallback: Match-V5. Last resort: `!vwin` / `!vloss` |
-| Valorant | On entering agent select, with the agent's key | With the final score in `metadata.last_match` when she goes back to the menus. A tie, or a prediction made with `!vgame`, stays manual: `!vwin` / `!vloss` |
+| Valorant | On entering agent select, with the agent's key | With the final score in `metadata.last_match` when she goes back to the menus. A 0–0 means a dodge in agent select: the prediction is cancelled and the points refunded. A played tie, or a prediction made with `!vgame`, stays manual: `!vwin` / `!vloss` |
 
 Prediction titles and options ("¿Gana esta partida?", "Gana", "Pierde") stay in Spanish: they are what viewers see.
