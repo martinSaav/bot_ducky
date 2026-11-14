@@ -1,4 +1,4 @@
-"""Resolucion de nombre de juego -> categoria de Twitch, y aplicacion al canal."""
+"""Resolves a game name to a Twitch category, and applies it to the channel."""
 from __future__ import annotations
 
 import difflib
@@ -14,12 +14,12 @@ from .twitch.helix import Helix
 
 log = logging.getLogger("category")
 
-# Debajo de esto no arriesgamos cambiar la categoria del canal.
+# Below this score the channel category is not worth the risk of changing.
 MATCH_THRESHOLD = 0.82
 
 
 def _norm(name: str) -> str:
-    """Normaliza para comparar: sin acentos, sin puntuacion, minusculas."""
+    """Normalizes for comparison: no accents, no punctuation, lowercase."""
     decomposed = unicodedata.normalize("NFKD", name)
     stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9]+", "", stripped.lower())
@@ -51,7 +51,7 @@ class CategoryResolver:
         return dict(self.state.get("game_cache") or {})
 
     async def resolve(self, name: str) -> dict[str, str] | None:
-        """Devuelve {'id','name'} de la categoria de Twitch, o None si no hay match."""
+        """Returns the Twitch category as {'id','name'}, or None if nothing matches."""
         name = (name or "").strip()
         if not name:
             return None
@@ -59,18 +59,21 @@ class CategoryResolver:
         if key in self._ignore:
             return None
 
-        cache = self._cache()
-        cached = cache.get(key)
+        target = self._map.get(key, name)
+        # Keyed by what is looked up, not by the reported name: adding or
+        # changing an alias in game_map.json (then !recargar) gives a new key,
+        # so an old cached miss or wrong match no longer applies.
+        cache_key = _norm(target)
+
+        cached = self._cache().get(cache_key)
         if cached is not None:
-            # Guardamos False para los nombres que ya sabemos que no resuelven.
+            # False is stored for names we already know do not resolve.
             return cached or None
 
-        target = self._map.get(key, name)
-
         game = await self._lookup(target)
-        # Guardamos tambien los fallos: evita repetir la busqueda en cada
-        # actualizacion de presencia de un programa que no es un juego.
-        await self.state.update("game_cache", {key: game or False})
+        # Failures are cached too: it avoids repeating the search on every
+        # presence update from a program that is not a game.
+        await self.state.update("game_cache", {cache_key: game or False})
         if game:
             log.info("Category resolved: %r -> %s (id %s)", name, game["name"], game["id"])
         else:
@@ -101,7 +104,7 @@ class CategoryResolver:
 
     # ------------------------------------------------------------------
     async def apply(self, broadcaster_id: str, game: dict[str, str]) -> bool:
-        """Cambia la categoria del canal. Devuelve False si ya estaba puesta."""
+        """Changes the channel category. Returns False if it was already set."""
         current = await self.helix.get_channel(broadcaster_id)
         if current and str(current.get("game_id")) == str(game["id"]):
             log.debug("Channel is already set to %s", game["name"])

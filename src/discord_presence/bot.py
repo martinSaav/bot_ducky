@@ -1,11 +1,11 @@
-"""Presencia de Discord como fuente de "que juego esta corriendo".
+"""Discord presence as a source of "which game is running".
 
-Es el respaldo del agente de escritorio: sirve cuando el agente no esta
-instalado o esta apagado. Este modulo solo informa lo que ve; quien decide
-que categoria poner es el GameArbiter.
+It backs up the desktop agent: it is used when the agent is not installed
+or is off. This module only reports what it sees; the GameArbiter decides
+which category to set.
 
-Requiere activar PRESENCE INTENT y SERVER MEMBERS INTENT en el portal de
-desarrolladores de Discord (Bot > Privileged Gateway Intents).
+Requires enabling PRESENCE INTENT and SERVER MEMBERS INTENT in the Discord
+developer portal (Bot > Privileged Gateway Intents).
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ log = logging.getLogger("presence")
 
 
 def playing_name(member: Any) -> str | None:
-    """Nombre del juego que Discord reporta como 'Jugando a ...'."""
+    """Name of the game Discord reports as 'Playing ...'."""
     for activity in getattr(member, "activities", ()) or ():
         if getattr(activity, "type", None) is discord.ActivityType.playing:
             name = (getattr(activity, "name", "") or "").strip()
@@ -53,14 +53,14 @@ class PresenceBot(discord.Client):
         if member is None:
             log.error(
                 "Streamer (id %s) not found in any bot server. "
-                "Invitalo al servidor privado o revisa el SERVER MEMBERS INTENT.",
+                "Invite them to the private server or check the SERVER MEMBERS INTENT.",
                 cfg.discord_streamer_id,
             )
             return
 
         log.info("Watching presence for %s", member)
-        # Si ya estaba jugando cuando arrancamos, informamos igual: sin esto
-        # el arbitro no sabria nada hasta el proximo cambio de actividad.
+        # If she was already playing when we started, report it anyway:
+        # otherwise the arbiter would know nothing until the next activity change.
         await self.arbiter.report("discord", playing_name(member))
         if self._presence_check_task is None or self._presence_check_task.done():
             self._presence_check_task = asyncio.create_task(

@@ -1,10 +1,10 @@
-"""Tests para src/twitch/chat.py — parse_line, ChatMessage properties, RateLimiter.
+"""Tests for src/twitch/chat.py — parse_line, ChatMessage properties, RateLimiter.
 
-No se testa el cliente WebSocket completo (requiere red). Se cubre:
-* Parsing de líneas IRCv3 con y sin tags
-* Propiedades derivadas de ChatMessage (badges, is_mod, is_vip, is_privileged)
+The full WebSocket client is not tested (it needs the network). Covered:
+* Parsing IRCv3 lines with and without tags
+* Derived ChatMessage properties (badges, is_mod, is_vip, is_privileged)
 * _unescape_tag
-* RateLimiter básico
+* Basic RateLimiter
 
 Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 """
@@ -77,7 +77,7 @@ class TestParseLine:
         assert tags["user-id"] == "467734820"
 
     def test_parseLine_WithTrailingColonInMessage_ParsesTrailing(self):
-        """El trailing puede contener ':' en el mensaje."""
+        """The trailing part may contain ':' in the message."""
         line = ":user!user@user.tmi.twitch.tv PRIVMSG #chan :hello: world"
         _, _, _, _, trailing = parse_line(line)
         assert trailing == "hello: world"
@@ -196,24 +196,52 @@ class TestRateLimiter:
         for _ in range(5):
             await rl.acquire()
         elapsed = time.monotonic() - start
-        assert elapsed < 0.5, "Debería adquirir sin esperar"
+        assert elapsed < 0.5, "Should acquire without waiting"
 
     async def test_RateLimiter_acquire_AtLimit_WaitsForWindow(self):
-        """Cuando se llena el bucket, la siguiente adquisición debe esperar.
+        """Once the bucket is full, the next acquisition must wait.
 
-        Usamos una ventana muy corta (0.1s) para no alargar los tests.
+        A very short window (0.1s) keeps the tests fast.
         """
         rl = RateLimiter(limit=2, window=0.1)
         await rl.acquire()
         await rl.acquire()
         start = time.monotonic()
-        # Esta tercera adquisición tiene que esperar hasta que expire la ventana
+        # This third acquisition has to wait until the window expires
         await asyncio.wait_for(rl.acquire(), timeout=1.0)
         elapsed = time.monotonic() - start
-        assert elapsed >= 0.05, "Debería haber esperado parte de la ventana"
+        assert elapsed >= 0.05, "Should have waited for part of the window"
 
     def test_RateLimiter_configure_UpdatesLimitAndWindow(self):
         rl = RateLimiter(limit=5, window=30.0)
         rl.configure(100, 60.0)
         assert rl.limit == 100
         assert rl.window == 60.0
+
+
+# ===========================================================================
+# ChatClient._handle
+# ===========================================================================
+
+class TestChatClientHandle:
+
+    async def test_handle_WhenMessageHandlerIsSlow_DoesNotBlockReading(self):
+        # A long command (!resumen calls an LLM) must not freeze the IRC loop:
+        # PINGs and other messages keep being read meanwhile.
+        from unittest.mock import MagicMock
+        from src.twitch.chat import ChatClient
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_handler(message: ChatMessage) -> None:
+            started.set()
+            await release.wait()
+
+        client = ChatClient(MagicMock(), MagicMock(), "botducky", "chaarqueen", slow_handler)
+        line = "@id=m1;user-id=2 :viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #chaarqueen :!resumen"
+
+        await asyncio.wait_for(client._handle(line), timeout=1)
+        await asyncio.wait_for(started.wait(), timeout=1)
+        release.set()
+        await asyncio.sleep(0)

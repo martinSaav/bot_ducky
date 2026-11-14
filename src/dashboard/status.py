@@ -1,8 +1,8 @@
-"""Estado del bot serializable para el dashboard web.
+"""Serializable bot state for the web dashboard.
 
-StatusProvider recolecta información de todos los subsistemas en un dict
-listo para ser enviado como JSON. WSBroadcaster gestiona las conexiones
-WebSocket activas y hace push de eventos en tiempo real.
+StatusProvider collects information from every subsystem into a dict ready to
+be sent as JSON. WSBroadcaster manages the active WebSocket connections and
+pushes real-time events.
 """
 from __future__ import annotations
 
@@ -13,8 +13,12 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from ..agent_version import EXPECTED_AGENT_VERSION, is_outdated
+from ..build_info import build_info
+from ..config import cfg
+
 if TYPE_CHECKING:
-    from ..gamesource import GameArbiter
+    from ..gamesource import GameArbiter, Report
     from ..chat_history import ChatHistory
     from ..storage import JsonStore
     from ..riot.lol import LolClient
@@ -24,7 +28,7 @@ log = logging.getLogger("dashboard")
 
 
 class WSBroadcaster:
-    """Gestiona las conexiones WebSocket activas y hace broadcast de eventos."""
+    """Manages the active WebSocket connections and broadcasts events."""
 
     def __init__(self) -> None:
         self._sockets: set[web.WebSocketResponse] = set()
@@ -36,7 +40,7 @@ class WSBroadcaster:
         self._sockets.discard(ws)
 
     async def broadcast(self, event: str, data: Any) -> None:
-        """Envía un evento a todos los clientes WebSocket conectados."""
+        """Sends an event to every connected WebSocket client."""
         if not self._sockets:
             return
         payload = json.dumps({"event": event, "data": data, "ts": time.time()})
@@ -57,11 +61,47 @@ class WSBroadcaster:
         return len(self._sockets)
 
 
-class StatusProvider:
-    """Recolecta el estado de todos los subsistemas del bot.
+# Readable queue names: Valorant reports a string, LoL a numeric queueId.
+_QUEUES: dict[str | int, str] = {
+    "competitive": "Competitive",
+    "unrated": "Unrated",
+    "swiftplay": "Swiftplay",
+    "spikerush": "Spike Rush",
+    "deathmatch": "Deathmatch",
+    "hurm": "Team Deathmatch",
+    "ggteam": "Escalation",
+    "premier": "Premier",
+    "onefa": "Replication",
+    "snowball": "Snowball Fight",
+    "custom": "Custom",
+    0: "Custom",
+    400: "Normal Draft",
+    420: "Ranked Solo/Duo",
+    430: "Normal Blind",
+    440: "Ranked Flex",
+    450: "ARAM",
+    490: "Quickplay",
+    700: "Clash",
+    900: "ARURF",
+    1700: "Arena",
+    1900: "URF",
+}
 
-    Se pasan referencias débiles a los objetos vivos; StatusProvider solo
-    los lee, nunca los modifica.
+
+def queue_label(raw: str | int | None) -> str | None:
+    """Readable name of a Valorant or LoL queue; unknown ones as text."""
+    if raw is None or raw == "":
+        return None
+    if raw in _QUEUES:
+        return _QUEUES[raw]
+    return f"Queue {raw}" if isinstance(raw, int) else str(raw)
+
+
+class StatusProvider:
+    """Collects the state of every bot subsystem.
+
+    It receives references to the live objects; StatusProvider only reads
+    them, never modifies them.
     """
 
     def __init__(
@@ -80,8 +120,7 @@ class StatusProvider:
         self.valorant = valorant
         self.broadcaster = broadcaster or WSBroadcaster()
 
-        # Flags de subsistemas activos, seteados por run.py después de
-        # arrancar cada subsistema.
+        # Flags for the active subsystems, set by run.py after each one starts.
         self.chat_active = False
         self.discord_active = False
         self.agent_active = False
@@ -92,9 +131,48 @@ class StatusProvider:
         self.bot_login: str = ""
         self.channel: str = ""
         self.start_time: float = time.time()
+        # Latest stream check from run.monitor_stream; live None = not checked yet.
+        self._stream: dict[str, Any] = {"live": None}
+        # The agent that last reported: version and PC name. None until one connects.
+        self._agent: dict[str, str] | None = None
+
+    def update_agent(self, version: str, host: str) -> None:
+        """Called on every agent report."""
+        self._agent = {"version": version, "host": host}
+
+    def update_stream(self, stream: dict[str, Any] | None) -> None:
+        """Result of the latest /helix/streams check (None = offline)."""
+        if not stream:
+            self._stream = {"live": False}
+            return
+        self._stream = {
+            "live": True,
+            "title": stream.get("title", ""),
+            "viewers": stream.get("viewer_count", 0),
+            "started_at": stream.get("started_at"),
+            "game": stream.get("game_name"),
+        }
+
+    def _match(self, agent: "Report | None") -> dict[str, Any] | None:
+        """Match state read by the agent from the game client, if any."""
+        if agent is None or agent.stale or not agent.metadata:
+            return None
+        meta = agent.metadata
+        if not meta.get("phase"):
+            return None
+        queue = meta.get("queue") if meta.get("queue") is not None else meta.get("queue_id")
+        return {
+            "game": agent.game,
+            "phase": meta.get("phase"),
+            "queue": queue_label(queue),
+            "score": meta.get("score"),
+            "match_id": agent.match_id,
+            "since": agent.match_since,
+            "last_match": meta.get("last_match"),
+        }
 
     def snapshot(self) -> dict[str, Any]:
-        """Devuelve el estado completo del bot como dict JSON-serializable."""
+        """Returns the full bot state as a JSON-serializable dict."""
         sources_raw = self.arbiter.sources()
         sources = {}
         for name, report in sources_raw.items():
@@ -106,7 +184,7 @@ class StatusProvider:
                 "stale_after": report.stale_after,
             }
 
-        # Juego ganador (el que se aplica en Twitch)
+        # Winning game (the one applied on Twitch)
         live = [(s, r) for s, r in sources_raw.items() if not r.stale]
         winner_source, winner_game = None, None
         if live:
@@ -116,7 +194,7 @@ class StatusProvider:
             )
             winner_game = winner_report.game
 
-        # Prediction activa
+        # Active prediction
         active_pred = self.state.get("prediction_active")
         prediction = None
         if active_pred:
@@ -125,9 +203,12 @@ class StatusProvider:
                 "prediction_id": active_pred.get("prediction_id", ""),
                 "game": active_pred.get("game", ""),
                 "outcomes": active_pred.get("outcomes", {}),
+                # None for predictions saved before created_at existed.
+                "created_at": active_pred.get("created_at"),
+                "window": cfg.prediction_window,
             }
 
-        # Historial de chat reciente (últimos 20)
+        # Recent chat history (last 20)
         recent = self.history.since(3600)
         chat_recent = [
             {
@@ -144,8 +225,7 @@ class StatusProvider:
             "key_dead": bool(self.lol and self.lol._key_dead),  # noqa: SLF001
         }
 
-        # Valorant (HenrikDev configurado)
-        from ..config import cfg
+        # Valorant (HenrikDev configured)
         val_status = {
             "configured": bool(cfg.henrik_api_key and cfg.valorant_id),
         }
@@ -176,6 +256,19 @@ class StatusProvider:
                 "lol": lol_status,
                 "valorant": val_status,
             },
+            "stream": dict(self._stream),
+            "chat": {
+                # Average of the last 5 minutes: steadier than the last minute alone.
+                "per_minute": round(len(self.history.since(300)) / 5, 1),
+                "last_hour": len(self.history.since(3600)),
+            },
+            "match": self._match(sources_raw.get("agent")),
+            "agent": None if self._agent is None else {
+                **self._agent,
+                "expected": EXPECTED_AGENT_VERSION,
+                "outdated": is_outdated(self._agent["version"]),
+            },
             "ws_clients": self.broadcaster.count,
+            "build": build_info(),
             "snapshot_at": time.time(),
         }

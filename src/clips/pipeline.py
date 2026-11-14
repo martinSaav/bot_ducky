@@ -1,4 +1,4 @@
-"""Pipeline diario de clips: Helix -> yt-dlp -> Google Drive."""
+"""Daily clips pipeline: Helix -> yt-dlp -> Google Drive."""
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +16,7 @@ from ..services import Services
 
 log = logging.getLogger("clips")
 
-# Windows no admite estos caracteres en nombres de archivo.
+# Windows does not allow these characters in file names.
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 STATE_KEY = "uploaded_clips"
@@ -43,7 +43,7 @@ class ClipPipeline:
         await self.svc.state.update(STATE_KEY, {clip_id: payload})
 
     async def _prune(self) -> None:
-        """Evita que state.json crezca para siempre."""
+        """Keeps state.json from growing forever."""
         cutoff = time.time() - RETENTION_DAYS * 86400
         current = self._uploaded()
         keep = {k: v for k, v in current.items() if float(v.get("at", 0)) >= cutoff}
@@ -70,7 +70,7 @@ class ClipPipeline:
 
     # ------------------------------------------------------------------
     async def download(self, clip: dict[str, Any]) -> Path | None:
-        """Descarga el clip con yt-dlp. Twitch solo expone la URL, no el mp4."""
+        """Downloads the clip with yt-dlp. Twitch only exposes the URL, not the mp4."""
         created = (clip.get("created_at") or "")[:10] or datetime.now().strftime("%Y-%m-%d")
         views = int(clip.get("view_count", 0))
         stem = f"{created}_{views:04d}v_{safe_filename(clip.get('title', ''))}_{clip['id']}"
@@ -100,12 +100,12 @@ class ClipPipeline:
 
     # ------------------------------------------------------------------
     async def run_once(self) -> dict[str, int]:
-        """Una corrida completa. Devuelve el resumen para loguear/anunciar."""
+        """One full run. Returns the summary to log/announce."""
         if self.running:
             log.info("A run is already in progress, skipping")
             return {"skipped": 1}
         self.running = True
-        summary = {"encontrados": 0, "subidos": 0, "fallidos": 0}
+        summary = {"found": 0, "uploaded": 0, "failed": 0}
         try:
             if not self.drive.configured:
                 log.error(
@@ -115,7 +115,7 @@ class ClipPipeline:
                 return summary
 
             clips = await self.select_clips()
-            summary["encontrados"] = len(clips)
+            summary["found"] = len(clips)
             if not clips:
                 log.info("No new clips to upload")
                 return summary
@@ -129,14 +129,14 @@ class ClipPipeline:
                 )
                 path = await self.download(clip)
                 if path is None:
-                    summary["fallidos"] += 1
+                    summary["failed"] += 1
                     continue
                 try:
                     description = (
                         f"{title}\n"
-                        f"Clipeado por: {clip.get('creator_name', '?')}\n"
-                        f"Vistas: {clip.get('view_count')}\n"
-                        f"Fecha: {clip.get('created_at')}\n"
+                        f"Clipped by: {clip.get('creator_name', '?')}\n"
+                        f"Views: {clip.get('view_count')}\n"
+                        f"Date: {clip.get('created_at')}\n"
                         f"{clip.get('url')}"
                     )
                     uploaded = await self.drive.upload(path, description=description)
@@ -150,12 +150,13 @@ class ClipPipeline:
                             "file": path.name,
                         },
                     )
-                    summary["subidos"] += 1
+                    summary["uploaded"] += 1
                 except DriveError as exc:
                     log.error("Failed to upload %s: %s", clip_id, exc)
-                    summary["fallidos"] += 1
-                    # Un error de configuracion se repite con todos los clips.
-                    if "Unidad compartida" in str(exc) or "GDRIVE_FOLDER_ID" in str(exc):
+                    summary["failed"] += 1
+                    # A configuration error repeats for every clip. The text must match
+                    # the DriveError message in drive.py.
+                    if "Shared Drive" in str(exc) or "GDRIVE_FOLDER_ID" in str(exc):
                         break
                     continue
                 finally:
@@ -164,7 +165,7 @@ class ClipPipeline:
             await self._prune()
             log.info(
                 "Run completed: %d found, %d uploaded, %d failed",
-                summary["encontrados"], summary["subidos"], summary["fallidos"],
+                summary["found"], summary["uploaded"], summary["failed"],
             )
             return summary
         finally:
@@ -184,7 +185,7 @@ class ClipPipeline:
         return (target - now).total_seconds()
 
     async def scheduler(self) -> None:
-        """Loop diario. Corre a la hora local de CLIPS_RUN_AT."""
+        """Daily loop. Runs at the local time in CLIPS_RUN_AT."""
         while True:
             wait = self._seconds_until_run()
             log.info(
@@ -198,5 +199,5 @@ class ClipPipeline:
                 raise
             except Exception:  # noqa: BLE001
                 log.exception("The entire clips run failed")
-            # Nos corremos un minuto para no re-disparar en el mismo minuto.
+            # Shift by a minute so it does not fire again in the same minute.
             await asyncio.sleep(60)

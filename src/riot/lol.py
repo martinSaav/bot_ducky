@@ -1,10 +1,13 @@
-"""Cliente de la API oficial de Riot para League of Legends.
+"""Client for Riot's official League of Legends API.
 
-Endpoints usados:
-  Account-V1    -> Riot ID (Nombre#TAG) a PUUID
-  League-V4     -> elo, LP, victorias/derrotas
-  Spectator-V5  -> partida en curso (campeon, cola, duracion, rivales)
-  Data Dragon   -> nombres de campeones (no cuenta contra la cuota)
+Endpoints used:
+  Account-V1    -> Riot ID (Name#TAG) to PUUID
+  League-V4     -> rank, LP, wins/losses
+  Spectator-V5  -> match in progress (champion, queue, duration, opponents)
+  Data Dragon   -> champion names (does not count against the quota)
+
+Error messages and rank/match texts are in Spanish on purpose: they are sent
+to Twitch chat.
 """
 from __future__ import annotations
 
@@ -54,7 +57,7 @@ class LolClient:
         self._live = TTLCache(30)
         self._champs: dict[int, str] = {}
         self._champs_cache = TTLCache(12 * 3600)
-        self._key_dead = False  # Se activa cuando Riot devuelve 401/403
+        self._key_dead = False  # Set when Riot returns 401/403
 
     @property
     def configured(self) -> bool:
@@ -62,7 +65,7 @@ class LolClient:
 
     # ------------------------------------------------------------------
     async def _get(self, host: str, path: str) -> Any | None:
-        """None cuando Riot responde 404 (no existe / no esta en partida)."""
+        """None when Riot answers 404 (does not exist / not in a match)."""
         url = f"https://{host}.api.riotgames.com{path}"
         headers = {"X-Riot-Token": cfg.riot_api_key}
         async with self.session.get(url, headers=headers) as resp:
@@ -122,7 +125,7 @@ class LolClient:
 
     # ------------------------------------------------------------------
     async def rank(self, riot_id: str | None = None) -> str:
-        """Texto listo para el chat con el elo del jugador."""
+        """Chat-ready text with the player's rank."""
         target = riot_id or cfg.riot_id
         cached = self._rank.get(target.lower())
         if cached:
@@ -160,7 +163,7 @@ class LolClient:
         return self._rank.set(target.lower(), text)
 
     async def live_game(self, riot_id: str | None = None) -> str:
-        """Texto con la partida en curso, o aviso de que no esta jugando."""
+        """Text with the match in progress, or a notice that they are not playing."""
         target = riot_id or cfg.riot_id
         cached = self._live.get(target.lower())
         if cached:
@@ -196,7 +199,7 @@ class LolClient:
         return self._live.set(target.lower(), text)
 
     async def active_game(self, riot_id: str | None = None) -> dict[str, Any] | None:
-        """Devuelve los datos de la partida activa, o None si no esta jugando."""
+        """Returns the active match data, or None if they are not playing."""
         puuid = await self.puuid(riot_id)
         return await self._get(
             cfg.riot_platform, f"/lol/spectator/v5/active-games/by-summoner/{puuid}"
@@ -208,7 +211,7 @@ class LolClient:
         return str(game_id) if game_id is not None else None
 
     async def match_won(self, game_id: str, riot_id: str | None = None) -> bool | None:
-        """Devuelve si la cuenta gano el gameId, o None si aun no aparece."""
+        """Returns whether the account won the gameId, or None if it is not listed yet."""
         puuid = await self.puuid(riot_id)
         ids = await self._get(
             cfg.riot_region,

@@ -1,4 +1,4 @@
-"""Logging a consola + archivo rotativo."""
+"""Logging to the console plus a rotating file."""
 from __future__ import annotations
 
 import logging
@@ -24,11 +24,11 @@ def setup(level: int = logging.INFO) -> None:
     fileh = RotatingFileHandler(
         cfg.log_dir / "bot.log", maxBytes=5_000_000, backupCount=5, encoding="utf-8"
     )
-    # En el archivo si queremos la fecha completa, no solo la hora.
+    # The file does get the full date, not just the time.
     fileh.setFormatter(logging.Formatter(_FMT, "%Y-%m-%d %H:%M:%S"))
     root.addHandler(fileh)
 
-    # discord.py y aiohttp son muy ruidosos en INFO
+    # discord.py and aiohttp are very noisy at INFO
     logging.getLogger("discord").setLevel(logging.WARNING)
     logging.getLogger("discord.client").setLevel(logging.WARNING)
     logging.getLogger("discord.gateway").setLevel(logging.WARNING)

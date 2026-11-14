@@ -1,27 +1,28 @@
-# Saca el agente del arranque automatico y lo cierra si esta corriendo.
+# Removes the agent from automatic start and closes it if it is running.
 #
-#   Click derecho > "Ejecutar con PowerShell"
+#   Right click > "Run with PowerShell"
 
 $ErrorActionPreference = "Stop"
-$nombreTarea = "Twitch Game Agent"
+# Must match the name used by install-autostart.ps1.
+$taskName = "Twitch Game Agent"
 
-$tarea = Get-ScheduledTask -TaskName $nombreTarea -ErrorAction SilentlyContinue
-if ($tarea) {
-    Stop-ScheduledTask -TaskName $nombreTarea -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName $nombreTarea -Confirm:$false
-    Write-Host "[OK] Tarea programada eliminada." -ForegroundColor Green
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($task) {
+    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    Write-Host "[OK] Scheduled task removed." -ForegroundColor Green
 } else {
-    Write-Host "No habia ninguna tarea instalada." -ForegroundColor Yellow
+    Write-Host "No task was installed." -ForegroundColor Yellow
 }
 
-$procesos = Get-Process -Name "twitch-game-agent" -ErrorAction SilentlyContinue
-if ($procesos) {
-    $procesos | Stop-Process -Force
-    Write-Host "[OK] Agente cerrado." -ForegroundColor Green
+$processes = Get-Process -Name "twitch-game-agent" -ErrorAction SilentlyContinue
+if ($processes) {
+    $processes | Stop-Process -Force
+    Write-Host "[OK] Agent closed." -ForegroundColor Green
 } else {
-    Write-Host "El agente no estaba corriendo." -ForegroundColor Yellow
+    Write-Host "The agent was not running." -ForegroundColor Yellow
 }
 
 Write-Host ""
-Write-Host "Listo, no queda nada del agente arrancando solo."
-Write-Host "Los archivos siguen en la carpeta; borrala si no la vas a usar mas."
+Write-Host "Done, nothing is left starting the agent automatically."
+Write-Host "The files are still in the folder; delete it if you no longer need it."

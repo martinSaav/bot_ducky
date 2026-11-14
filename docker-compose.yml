@@ -1,13 +1,18 @@
 services:
   bot:
-    build: .
+    build:
+      context: .
+      args:
+        # Shown in /health and on the dashboard, to tell which code is running:
+        #   GIT_COMMIT=$(git describe --always --dirty) docker compose up -d --build bot
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     container_name: ducky_bot
     restart: unless-stopped
     env_file:
       - .env
     environment:
       TZ: America/Argentina/Buenos_Aires
-    # Mapeo de puertos para el control de chat y el endpoint del agente
+    # Port mapping for chat control and the agent endpoint
     ports:
       - "${AGENT_PORT:-8787}:${AGENT_PORT:-8787}"
       - "${CHAT_CONTROL_PORT:-8790}:${CHAT_CONTROL_PORT:-8790}"
@@ -17,6 +22,15 @@ services:
       - ./config:/app/config
       - ./downloads:/app/downloads
       - ./secrets:/app/secrets
+    # Marks the container unhealthy when /health stops answering (docker ps).
+    # Restarting a hung bot is the watchdog's job (src/watchdog.py): Docker
+    # only restarts a container whose process exits.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('AGENT_PORT', '8787'), timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       db:
         condition: service_healthy
@@ -32,15 +46,37 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # En pg18+ los datos van en /var/lib/postgresql (sin /data al final)
-      # el motor crea automáticamente el subdirectorio 18/main/
+      # In pg18+ the data goes in /var/lib/postgresql (no /data at the end);
+      # the engine creates the 18/main/ subdirectory automatically
       - ducky_pgdata:/var/lib/postgresql
-      - ./db:/docker-entrypoint-initdb.d   # ejecuta los .sql en orden al crear la DB
+      - ./db:/docker-entrypoint-initdb.d   # runs the .sql files in order when the DB is created
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ducky} -d ${POSTGRES_DB:-duckydb}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Nightly pg_dump to ./backups, keeping the newest 7 (tools/db_backup.sh).
+  # Same image as the database, so pg_dump matches the server version.
+  db-backup:
+    image: pgvector/pgvector:pg18
+    container_name: ducky_db_backup
+    restart: unless-stopped
+    entrypoint: ["sh", "/db_backup.sh"]
+    environment:
+      TZ: America/Argentina/Buenos_Aires
+      PGHOST: db
+      PGPASSWORD: ${POSTGRES_PASSWORD:-duckypass}
+      POSTGRES_USER: ${POSTGRES_USER:-ducky}
+      POSTGRES_DB: ${POSTGRES_DB:-duckydb}
+      BACKUP_AT: "04:00"
+      BACKUP_KEEP: "7"
+    volumes:
+      - ./tools/db_backup.sh:/db_backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   ducky_pgdata:

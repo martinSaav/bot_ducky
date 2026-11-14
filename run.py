@@ -1,11 +1,11 @@
-"""Punto de entrada: levanta los tres subsistemas en un solo proceso asyncio.
+"""Entry point: starts the three subsystems in a single asyncio process.
 
-  1. Auto-categorizador  (agente de escritorio y/o presencia de Discord)
-  2. Bot de chat         (IRC de Twitch + comandos con stats de Riot)
-  3. Pipeline de clips   (Helix -> yt-dlp -> Google Drive, diario)
+  1. Auto-categorizer  (desktop agent and/or Discord presence)
+  2. Chat bot          (Twitch IRC + commands with Riot stats)
+  3. Clips pipeline    (Helix -> yt-dlp -> Google Drive, daily)
 
-Cada subsistema se activa solo si su configuracion esta completa, asi que
-podes empezar con uno y sumar los demas despues.
+Each subsystem starts only if its configuration is complete, so you can
+start with one and add the rest later.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import logging
 import signal
 import time
 from datetime import datetime, timezone
+from typing import Awaitable, Callable
 
 import aiohttp
 
@@ -24,6 +25,7 @@ from src.chat_embeddings import EmbeddingWorker
 from src.chat_history import ChatHistory
 from src.chat_history import HistoryEntry
 from src.chat_history_db import PostgresChatHistory
+from src.chat_qa import ChatQA
 from src.llm_summary import LlmSummary
 from src.chat_control import ChatControlServer
 from src.clips.pipeline import ClipPipeline
@@ -41,6 +43,7 @@ from src.twitch.auth import TwitchAuth
 from src.twitch.chat import ChatClient
 from src.twitch.chat import ChatMessage
 from src.twitch.helix import Helix
+from src.watchdog import LoopWatchdog, beat_forever
 
 log = logging.getLogger("run")
 
@@ -53,8 +56,15 @@ async def monitor_stream(
     arbiter: GameArbiter,
     stop: asyncio.Event,
     chat: ChatClient | None = None,
+    on_stream: Callable[[dict | None], None] | None = None,
 ) -> None:
-    """Detect the live-to-offline transition and log a session summary."""
+    """Detect the live-to-offline transition and log a session summary.
+
+    on_stream receives every check's result (the stream, or None when
+    offline): the dashboard shows it.
+    """
+    # Strong references: asyncio does not keep running tasks alive by itself.
+    retries: set[asyncio.Task] = set()
     session_started = time.time()
     stream_id: str | None = None
     session_game: str | None = None
@@ -62,17 +72,34 @@ async def monitor_stream(
     while not stop.is_set():
         try:
             live = await helix.get_stream(cfg.twitch_channel)
+            if on_stream is not None:
+                on_stream(live)
             if live:
                 if not was_live:
-                    session_started = time.time()
                     stream_id = str(live.get("id", "")) or None
                     session_game = live.get("game_name")
+                    stream_started_at = _parse_stream_started(live.get("started_at"))
+
+                    # Try to recover a previous session from the DB (restart mid-stream).
+                    recovered = False
                     if database_history is not None and stream_id:
-                        await database_history.start_session(
-                            stream_id,
-                            _parse_stream_started(live.get("started_at")),
-                            session_game,
-                        )
+                        existing_started = await database_history.get_open_session(stream_id)
+                        if existing_started is not None:
+                            session_started = existing_started.timestamp()
+                            log.info(
+                                "Recovered open session %s from DB (started %s, %.0f min ago)",
+                                stream_id,
+                                existing_started.isoformat(),
+                                (time.time() - session_started) / 60,
+                            )
+                            recovered = True
+
+                    if not recovered:
+                        session_started = stream_started_at.timestamp()
+                        if database_history is not None and stream_id:
+                            await database_history.start_session(
+                                stream_id, stream_started_at, session_game
+                            )
                 was_live = True
             elif was_live:
                 seconds = max(60, int(time.time() - session_started))
@@ -104,6 +131,18 @@ async def monitor_stream(
                     log.info("Final stream summary:\n%s", summary)
                     if chat:
                         await chat.say(f"Resumen del stream: {summary}")
+                elif seconds >= min_seconds and llm_summary.configured and messages:
+                    log.info("Stream ended; LLM summary failed, retrying later")
+                    task = asyncio.create_task(
+                        summarize_later(
+                            llm_summary, messages, live_game_name(arbiter),
+                            _format_seconds(seconds), stream_id=stream_id,
+                            database_history=database_history, chat=chat,
+                        ),
+                        name="summary-retry",
+                    )
+                    retries.add(task)
+                    task.add_done_callback(retries.discard)
                 else:
                     log.info("Stream ended; no LLM summary available")
                 if database_history is not None and stream_id:
@@ -121,12 +160,94 @@ async def monitor_stream(
                 session_started = time.time()
                 stream_id = None
                 session_game = None
+        except aiohttp.ClientConnectionError as exc:
+            log.warning("Network error checking stream status: %s. Retrying in %ss", exc, cfg.presence_check_seconds)
         except Exception:  # noqa: BLE001 - monitor must not stop the bot
             log.exception("Could not check stream status")
         try:
             await asyncio.wait_for(stop.wait(), timeout=cfg.presence_check_seconds)
         except asyncio.TimeoutError:
             pass
+
+
+async def summarize_later(
+    llm_summary: LlmSummary,
+    messages: list[HistoryEntry],
+    game: str,
+    window: str,
+    *,
+    stream_id: str | None,
+    database_history: PostgresChatHistory | None,
+    chat: ChatClient | None,
+    delays: tuple[int, ...] = (300, 900, 1800),
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> str | None:
+    """Retries the end-of-stream summary after the LLM failed.
+
+    A busy model (e.g. Gemini's 503 "high demand") usually recovers within
+    minutes, so the summary is retried later instead of being lost.
+    """
+    for delay in delays:
+        await sleep(delay)
+        summary = await llm_summary.summarize(messages, game, window)
+        if not summary:
+            continue
+        log.info("Final stream summary (retried):\n%s", summary)
+        try:
+            if database_history is not None and stream_id:
+                await database_history.set_session_summary(stream_id, summary)
+            if chat:
+                await chat.say(f"Resumen del stream: {summary}")
+        except Exception:  # noqa: BLE001 - the summary is already in the log
+            log.exception("Could not store or announce the retried summary")
+        return summary
+    log.warning("Stream summary still unavailable after %d retries; giving up", len(delays))
+    return None
+
+
+async def maintain_embeddings(worker: EmbeddingWorker) -> None:
+    """Startup housekeeping for the !pregunta memory.
+
+    Drops the embeddings of commands and short reactions (until November 2026
+    every message was embedded) and indexes stream summaries that have none.
+    """
+    try:
+        pruned = await worker.prune_noise(cfg.embedding_min_words)
+        if pruned:
+            log.info("Embeddings: removed %d of commands and short messages", pruned)
+        indexed = await worker.backfill_sessions()
+        if indexed:
+            log.info("Embeddings: indexed %d stream summaries", indexed)
+    except Exception:  # noqa: BLE001 - housekeeping must not stop the bot
+        log.exception("Embeddings: startup housekeeping failed")
+
+
+async def wait_for_exit(tasks: dict[str, asyncio.Task], stop: asyncio.Event) -> None:
+    """Waits until stop is set or a subsystem crashes.
+
+    A task that finishes cleanly is not a reason to shut down: db-reconnect,
+    for example, returns as soon as Postgres connects.
+    """
+    stop_task = asyncio.create_task(stop.wait(), name="stop")
+    names = {task: name for name, task in tasks.items()}
+    pending = set(tasks.values())
+    try:
+        while True:
+            done, pending = await asyncio.wait(
+                [*pending, stop_task], return_when=asyncio.FIRST_COMPLETED
+            )
+            pending.discard(stop_task)
+            if stop_task in done:
+                return
+            crashed = False
+            for task in done:
+                if not task.cancelled() and task.exception() is not None:
+                    log.error("Subsystem '%s' died: %r", names[task], task.exception())
+                    crashed = True
+            if crashed:
+                return
+    finally:
+        stop_task.cancel()
 
 
 def live_game_name(arbiter: GameArbiter) -> str:
@@ -153,25 +274,25 @@ def _parse_stream_started(value: str | None) -> datetime:
 
 
 async def resolve_broadcaster_id(auth: TwitchAuth, helix: Helix) -> str:
-    """user_id del canal a administrar, desde el token o desde /helix/users."""
+    """user_id of the channel to manage, from the token or from /helix/users."""
     entry = auth.info("broadcaster")
     if entry.get("user_id"):
         login = (entry.get("login") or "").lower()
         if login and login != cfg.twitch_channel:
-            # Cortamos en vez de avisar: seguir significaria cambiarle la
-            # categoria al canal equivocado, y un warning en el log no es
-            # proteccion suficiente para eso.
+            # Stop instead of warning: carrying on would change the wrong
+            # channel's category, and a warning in the log is not enough
+            # protection against that.
             raise RuntimeError(
-                f"El token de broadcaster es de '{login}' pero TWITCH_CHANNEL es "
-                f"'{cfg.twitch_channel}'. Con esto le cambiaria la categoria al canal "
-                f"equivocado.\n"
-                f"    Reautoriza con la cuenta correcta:\n"
+                f"The broadcaster token belongs to '{login}' but TWITCH_CHANNEL is "
+                f"'{cfg.twitch_channel}'. This would change the wrong channel's "
+                f"category.\n"
+                f"    Authorize again with the right account:\n"
                 f"      python tools/auth_twitch.py broadcaster"
             )
         return str(entry["user_id"])
     user = await helix.get_user(cfg.twitch_channel)
     if not user:
-        raise RuntimeError(f"No existe el canal de Twitch '{cfg.twitch_channel}'")
+        raise RuntimeError(f"Twitch channel '{cfg.twitch_channel}' does not exist")
     return str(user["id"])
 
 
@@ -219,6 +340,7 @@ async def main() -> int:
             database_history = PostgresChatHistory(
                 cfg.database_url,
                 ignored_authors=cfg.chat_ignored_authors | {cfg.bot_login.lower()},
+                embed_min_words=cfg.embedding_min_words,
             )
             try:
                 await database_history.start()
@@ -237,9 +359,14 @@ async def main() -> int:
         if llm_summary.configured:
             log.info("LLM summary: active (%s)", cfg.llm_model)
 
-        # --- embeddings (opcional: requiere DB + LLM) ----------------------
+        # --- embeddings (optional: needs the DB and the LLM) ---------------
+        # Without a pool yet (DB still starting), db-reconnect enables them.
         embedding_worker: EmbeddingWorker | None = None
-        if database_history is not None and cfg.llm_api_key:
+        if (
+            database_history is not None
+            and database_history._pool is not None  # noqa: SLF001
+            and cfg.llm_api_key
+        ):
             try:
                 embedding_worker = EmbeddingWorker(
                     pool=database_history._pool,  # noqa: SLF001
@@ -293,8 +420,13 @@ async def main() -> int:
             database_history=database_history,
             embeddings=embedding_worker,
             llm_summary=llm_summary,
+            qa=ChatQA(embedding_worker, llm_summary) if embedding_worker else None,
         )
         tasks: dict[str, asyncio.Task] = {}
+        if embedding_worker is not None:
+            tasks["embeddings-maintenance"] = asyncio.create_task(
+                maintain_embeddings(embedding_worker), name="embeddings-maintenance"
+            )
         stop = asyncio.Event()
         chat_control: ChatControlServer | None = None
 
@@ -311,7 +443,7 @@ async def main() -> int:
                     await status_provider.broadcaster.broadcast("chat", {
                         "author": message.display_name,
                         "text": message.text,
-                        "ts": __import__("time").time(),
+                        "ts": time.time(),
                     })
                 await registry.dispatch(message)
 
@@ -330,7 +462,7 @@ async def main() -> int:
                 "Chat bot: disabled (missing 'python tools/auth_twitch.py bot')"
             )
 
-        # --- 1a. agente de escritorio (fuente principal) ------------------
+        # --- 1a. desktop agent (primary source) ----------------------------
         agent_server: AgentServer | None = None
         if cfg.agent_token:
             agent_server = AgentServer(arbiter, status_provider=status_provider)
@@ -338,11 +470,11 @@ async def main() -> int:
             status_provider.agent_active = True
         else:
             log.warning("Desktop agent: disabled (missing AGENT_TOKEN)")
-            # Aún así levantamos el server para el dashboard.
-            agent_server = AgentServer(None, status_provider=status_provider)  # type: ignore[arg-type]
+            # The server still starts, for the dashboard.
+            agent_server = AgentServer(None, status_provider=status_provider)
             await agent_server.start()
 
-        # --- 1b. presencia de Discord (respaldo) --------------------------
+        # --- 1b. Discord presence (fallback) ------------------------------
         if cfg.discord_token and cfg.discord_streamer_id:
             presence = PresenceBot(arbiter=arbiter)
             svc.presence = presence
@@ -363,21 +495,22 @@ async def main() -> int:
 
         tasks["stream-monitor"] = asyncio.create_task(
             monitor_stream(
-                helix, history, database_history, llm_summary, arbiter, stop, svc.chat
+                helix, history, database_history, llm_summary, arbiter, stop, svc.chat,
+                on_stream=status_provider.update_stream,
             ),
             name="stream-monitor",
         )
 
-        # --- reconexion DB en background ------------------------------------
-        # Si Postgres no estaba disponible al arranque, reintentamos cada 30s
-        # hasta conectar. Una vez conectado, activamos embeddings tambien.
+        # --- background DB reconnection ------------------------------------
+        # If Postgres was not available at startup, retry every 30s until it
+        # connects. Once connected, embeddings are enabled too.
         if cfg.database_url and database_history is not None and database_history._pool is None:  # noqa: SLF001
             async def _reconnect_db() -> None:
                 delay = 30
                 while not stop.is_set():
                     try:
                         await asyncio.wait_for(stop.wait(), timeout=delay)
-                        return  # stop fue activado
+                        return  # stop was set
                     except asyncio.TimeoutError:
                         pass
                     try:
@@ -385,7 +518,7 @@ async def main() -> int:
                         log.info("PostgreSQL history: reconnected successfully")
                         svc.database_history = database_history
                         status_provider.db_active = True
-                        # Activar embeddings si todavia no estan corriendo.
+                        # Enable embeddings if they are not running yet.
                         if svc.embeddings is None and cfg.llm_api_key:
                             try:
                                 ew = EmbeddingWorker(
@@ -398,12 +531,16 @@ async def main() -> int:
                                 )
                                 await ew.start()
                                 svc.embeddings = ew
+                                svc.qa = ChatQA(ew, llm_summary)
                                 database_history._embedding_worker = ew  # noqa: SLF001
                                 status_provider.embeddings_active = True
                                 log.info("Embeddings: active after DB reconnect")
+                                tasks["embeddings-maintenance"] = asyncio.create_task(
+                                    maintain_embeddings(ew), name="embeddings-maintenance"
+                                )
                             except Exception:  # noqa: BLE001
                                 log.exception("Embeddings: failed to start after DB reconnect")
-                        return  # ya conectamos, no hace falta seguir reintentando
+                        return  # connected; no need to keep retrying
                     except Exception:  # noqa: BLE001
                         log.warning("PostgreSQL history: still unavailable, retrying in %ds", delay)
 
@@ -431,21 +568,17 @@ async def main() -> int:
             try:
                 loop.add_signal_handler(sig, stop.set)
             except NotImplementedError:
-                # Windows no soporta add_signal_handler; el KeyboardInterrupt
-                # de asyncio.run se encarga.
+                # Windows does not support add_signal_handler; asyncio.run's
+                # KeyboardInterrupt handles it.
                 pass
 
+        # Restarts the process if the loop hangs (Docker restarts it after).
+        watchdog = LoopWatchdog(timeout=60)
+        watchdog.start()
+        tasks["watchdog"] = asyncio.create_task(beat_forever(watchdog), name="watchdog")
+
         log.info("All systems up. Ctrl+C to stop.")
-        stop_task = asyncio.create_task(stop.wait(), name="stop")
-        done, _ = await asyncio.wait(
-            [*tasks.values(), stop_task], return_when=asyncio.FIRST_COMPLETED
-        )
-        stop_task.cancel()
-        for task in done:
-            if task.get_name() != "stop" and not task.cancelled():
-                exc = task.exception()
-                if exc:
-                    log.error("Subsystem '%s' died: %r", task.get_name(), exc)
+        await wait_for_exit(tasks, stop)
 
         log.info("Shutting down...")
         if agent_server is not None:

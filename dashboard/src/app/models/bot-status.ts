@@ -15,6 +15,16 @@ export interface Prediction {
   prediction_id: string;
   game: string;
   outcomes: PredictionOutcomes;
+  /** Epoch seconds when it opened; null for predictions saved before this existed. */
+  created_at: number | null;
+  /** Voting window in seconds. */
+  window: number;
+}
+
+export interface ChatActivity {
+  /** Average over the last 5 minutes. */
+  per_minute: number;
+  last_hour: number;
 }
 
 export interface LolStatus {
@@ -47,6 +57,54 @@ export interface ChatMessage {
   ts: number;
 }
 
+export interface Score {
+  ally: number;
+  enemy: number;
+}
+
+export interface LastMatch {
+  id: string;
+  /** LoL: "win" | "loss" | null. */
+  result?: string | null;
+  /** Valorant: final score. */
+  score?: Score | null;
+}
+
+/** Match state read by the agent from the game client. */
+export interface MatchStatus {
+  game: string;
+  phase: 'menus' | 'pregame' | 'in_game' | 'post_game' | string;
+  queue: string | null;
+  score: Score | null;
+  match_id: string | null;
+  /** Epoch seconds when the bot first saw this match. */
+  since: number | null;
+  last_match: LastMatch | null;
+}
+
+/** live: null until the bot's first check. */
+export interface StreamStatus {
+  live: boolean | null;
+  title?: string;
+  viewers?: number;
+  started_at?: string | null;
+  game?: string | null;
+}
+
+/** The desktop agent that last reported; null until one connects. */
+export interface AgentInfo {
+  version: string;
+  host: string;
+  /** Version this bot was released with (agent/Cargo.toml). */
+  expected: string;
+  outdated: boolean;
+}
+
+export interface BuildInfo {
+  commit: string;
+  built_at: string;
+}
+
 export interface BotStatus {
   channel: string;
   bot_login: string;
@@ -62,6 +120,11 @@ export interface BotStatus {
   riot: RiotStatus;
   ws_clients: number;
   snapshot_at: number;
+  build?: BuildInfo;
+  stream?: StreamStatus;
+  match?: MatchStatus | null;
+  chat?: ChatActivity;
+  agent?: AgentInfo | null;
 }
 
 export interface WsEvent {

@@ -1,12 +1,14 @@
-//! Agente que corre en la PC del streamer.
+//! Agent that runs on the streamer's PC.
 //!
-//! Cada pocos segundos mira si hay algun juego de la lista blanca corriendo y
-//! se lo avisa al bot. No toca Twitch, no guarda credenciales de nadie y no
-//! reporta ningun proceso que no este declarado en agent.toml.
+//! Every few seconds it checks whether a game from the allowlist is running
+//! and tells the bot. It does not touch Twitch, stores nobody's credentials,
+//! and reports no process that is not declared in agent.toml.
 
+mod alert;
 mod clock;
 mod config;
 mod detect;
+mod local;
 mod lol;
 mod report;
 mod valorant;
@@ -16,6 +18,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use alert::{Alert, Alerter};
 use config::Config;
 use detect::{Detected, Detector};
 use report::Reporter;
@@ -36,7 +39,7 @@ fn main() {
         None => base.join("agent.toml"),
     };
 
-    // --scan no necesita config: sirve justamente para armarla.
+    // --scan needs no config: its whole point is to help write one.
     if args.iter().any(|a| a == "--scan") {
         scan();
         return;
@@ -45,28 +48,41 @@ fn main() {
     let cfg = match Config::load(&config_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[X] {e}");
+            eprintln!("{} ERROR   [agent] [config] {e}", clock::log_stamp());
             std::process::exit(1);
         }
     };
 
-    let log_path = Config::resolve(&base, &cfg.log_file);
-    let mut log = Logger::new(log_path);
-
     let mut detector = Detector::new(&cfg.games);
 
     if args.iter().any(|a| a == "--once") {
-        match detector.detect() {
-            Some(d) => println!("Detectado: {} (proceso {})", d.game, d.exe),
-            None => println!("Ningun juego de la lista esta corriendo."),
+        // Also shows what the client's local API says: the first thing to
+        // check when a prediction is not created.
+        let detected = detector.detect();
+        for line in detector.take_diagnostics() {
+            println!("  {line}");
+        }
+        match detected {
+            Some(d) => {
+                println!("Detected: {} (process {})", d.game, d.exe);
+                if let Some(id) = &d.match_id {
+                    println!("Active match: {id}");
+                }
+                if let Some(meta) = &d.metadata {
+                    println!("Match state: {meta}");
+                }
+            }
+            None => println!("No configured game is running."),
         }
         return;
     }
 
     let reporter = Reporter::new(cfg.endpoint.clone(), cfg.token.clone());
+    let log_path = Config::resolve(&base, &cfg.log_file);
+    let mut log = Logger::new(log_path, &reporter);
 
-    log.line(&format!(
-        "agente v{VERSION} iniciado | {} juegos vigilados | cada {}s | destino {}",
+    log.info(&format!(
+        "Agent v{VERSION} started | watching {} games | every {}s | destination {}",
         detector.rule_count(),
         cfg.poll_seconds,
         reporter.endpoint()
@@ -83,31 +99,49 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
     let mut ever_sent = false;
     let mut last_send = Instant::now();
     let mut failures: u32 = 0;
+    let mut alerter = cfg
+        .alert_webhook
+        .as_ref()
+        .map(|_| Alerter::new(Duration::from_secs(cfg.alert_after_minutes * 60)));
 
     loop {
         let current = detector.detect();
+        for diagnostic in detector.take_diagnostics() {
+            log.raw(&diagnostic);
+        }
 
         let changed = !ever_sent || current != last_reported;
+        // The Valorant score changes every round: that is sent, but
+        // "Detected" is only logged when the game or the match changes.
+        let identity_changed = !ever_sent || identity(&current) != identity(&last_reported);
         let heartbeat_due = last_send.elapsed() >= heartbeat;
 
-        // Un envio fallido deja `ever_sent` en false, asi el proximo tick
-        // reintenta sin necesidad de una cola aparte.
+        // A failed send leaves `ever_sent` false, so the next tick retries
+        // without needing a separate queue.
         if changed || heartbeat_due {
-            match reporter.send(current.as_ref()) {
+            let game = current.as_ref().map(|d| d.game.clone());
+            let result = reporter.send(current.as_ref(), log.pending());
+            if let (Some(alerter), Some(hook)) = (alerter.as_mut(), cfg.alert_webhook.as_deref()) {
+                if let Some(alert) = alerter.observe(result.is_ok(), game.as_deref(), Instant::now()) {
+                    notify(hook, &alert, reporter.endpoint(), log);
+                }
+            }
+            match result {
                 Ok(()) => {
-                    if changed {
+                    log.clear_pending();
+                    if identity_changed {
                         match &current {
                             Some(d) => {
                                 let match_part = d.match_id.as_deref()
                                     .map(|id| format!(" [match: {}]", &id[..id.len().min(36)]))
                                     .unwrap_or_default();
-                                log.line(&format!("--> {} ({}){}", d.game, d.exe, match_part));
+                                log.info(&format!("Detected {} ({}){}", d.game, d.exe, match_part));
                             }
-                            None => log.line("--> sin juego"),
+                            None => log.info("No configured game is running"),
                         }
                     }
                     if failures > 0 {
-                        log.line(&format!("conexion recuperada tras {failures} intentos"));
+                        log.info(&format!("Connection recovered after {failures} attempts"));
                         failures = 0;
                     }
                     last_reported = current;
@@ -115,10 +149,10 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
                     last_send = Instant::now();
                 }
                 Err(e) => {
-                    // Sin esto un bot apagado llenaria el log con una linea
-                    // igual cada 5 segundos.
+                    // Without this, a bot that is down would fill the log with
+                    // the same line every 5 seconds.
                     if failures < 3 || failures % 60 == 0 {
-                        log.line(&format!("[!] {e}"));
+                        log.warning(&e);
                     }
                     failures = failures.saturating_add(1);
                     ever_sent = false;
@@ -131,30 +165,44 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
     }
 }
 
+/// Posts the alert to the Discord webhook; a failure is only logged.
+fn notify(hook: &str, alert: &Alert, endpoint: &str, log: &mut Logger) {
+    let text = alert::message(alert, report::host_port(endpoint));
+    match local::post_json(hook, &serde_json::json!({ "content": text }).to_string()) {
+        Ok(()) => log.info(&format!("Discord alert sent: {text}")),
+        Err(e) => log.warning(&format!("Could not send the Discord alert: {e}")),
+    }
+}
+
+/// What identifies a report for the log: game, executable and match.
+fn identity(d: &Option<Detected>) -> Option<(&str, &str, Option<&str>)> {
+    d.as_ref().map(|d| (d.game.as_str(), d.exe.as_str(), d.match_id.as_deref()))
+}
+
 fn scan() {
-    println!("Procesos en ejecucion (esto se imprime solo aca, no se envia a ningun lado):\n");
+    println!("Running processes (printed locally only; never sent anywhere):\n");
     let mut detector = Detector::new(&[]);
     for name in detector.running_processes() {
         println!("  {name}");
     }
-    println!("\nCopia el ejecutable del juego a un bloque [[games]] de agent.toml.");
+    println!("\nCopy the game executable into a [[games]] block in agent.toml.");
 }
 
 fn print_help() {
     println!(
         "\
 twitch-game-agent v{VERSION}
-Avisa al bot que juego esta corriendo, para que cambie la categoria del canal.
+Reports the running game to the bot so it can update the channel category.
 
-USO:
-  twitch-game-agent.exe              corre en segundo plano (uso normal)
-  twitch-game-agent.exe --once       dice que detecta ahora y sale
-  twitch-game-agent.exe --scan       lista los procesos, para agregar un juego
-  twitch-game-agent.exe --config X   usa otro archivo de configuracion
-  twitch-game-agent.exe --help       esta ayuda
+USAGE:
+    twitch-game-agent.exe              run in the background (normal mode)
+    twitch-game-agent.exe --once       print the current detection and exit
+    twitch-game-agent.exe --scan       list processes to configure a game
+    twitch-game-agent.exe --config X   use a different configuration file
+    twitch-game-agent.exe --help       show this help
 
-La configuracion vive en agent.toml, al lado del ejecutable.
-Solo se reportan los juegos declarados ahi."
+Configuration lives in agent.toml next to the executable.
+Only games declared there are reported."
     );
 }
 
@@ -170,19 +218,48 @@ fn exe_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Log a archivo y a consola. Si el archivo no se puede abrir seguimos igual:
-/// no poder loguear no es motivo para que el agente deje de funcionar.
-struct Logger {
+/// Logs to a file and to the console. If the file cannot be opened we carry
+/// on: failing to log is no reason for the agent to stop working.
+struct Logger<'a> {
     path: PathBuf,
+    reporter: &'a Reporter,
+    pending: Vec<String>,
 }
 
-impl Logger {
-    fn new(path: PathBuf) -> Self {
-        Self { path }
+impl<'a> Logger<'a> {
+    fn new(path: PathBuf, reporter: &'a Reporter) -> Self {
+        Self {
+            path,
+            reporter,
+            pending: Vec::new(),
+        }
     }
 
-    fn line(&mut self, msg: &str) {
-        let entry = format!("{}  {msg}", clock::log_stamp());
+    fn raw(&mut self, msg: &str) {
+        let (level, message) = if let Some(message) = msg.strip_prefix("[INFO] ") {
+            ("INFO", message)
+        } else if let Some(message) = msg.strip_prefix("[WARNING] ") {
+            ("WARNING", message)
+        } else if let Some(message) = msg.strip_prefix("[ERROR] ") {
+            ("ERROR", message)
+        } else if let Some(message) = msg.strip_prefix("[DEBUG] ") {
+            ("DEBUG", message)
+        } else {
+            ("INFO", msg)
+        };
+        self.write(level, message);
+    }
+
+    fn info(&mut self, msg: &str) {
+        self.write("INFO", msg);
+    }
+
+    fn warning(&mut self, msg: &str) {
+        self.write("WARNING", msg);
+    }
+
+    fn write(&mut self, level: &str, msg: &str) {
+        let entry = format!("{} {:<7} [agent] {msg}", clock::log_stamp(), level);
         println!("{entry}");
 
         if let Ok(mut file) = OpenOptions::new()
@@ -192,5 +269,22 @@ impl Logger {
         {
             let _ = writeln!(file, "{entry}");
         }
+
+        const MAX_PENDING: usize = 200;
+        self.pending.push(entry);
+        if self.pending.len() > MAX_PENDING {
+            self.pending.drain(..self.pending.len() - MAX_PENDING);
+        }
+        if self.reporter.send_logs(&self.pending).is_ok() {
+            self.pending.clear();
+        }
+    }
+
+    fn pending(&self) -> &[String] {
+        &self.pending
+    }
+
+    fn clear_pending(&mut self) {
+        self.pending.clear();
     }
 }

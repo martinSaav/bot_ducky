@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from .chat_embeddings import MIN_WORDS, should_embed
 from .twitch.chat import ChatMessage
 
 if TYPE_CHECKING:
@@ -48,6 +49,7 @@ class PostgresChatHistory:
         queue_size: int = 2_000,
         ignored_authors: set[str] | None = None,
         embedding_worker: "EmbeddingWorker | None" = None,
+        embed_min_words: int = MIN_WORDS,
     ):
         self.database_url = database_url
         self._queue: asyncio.Queue[ChatMessage | None] = asyncio.Queue(maxsize=queue_size)
@@ -55,6 +57,7 @@ class PostgresChatHistory:
         self._pool = None
         self._worker: asyncio.Task[None] | None = None
         self._embedding_worker = embedding_worker
+        self._embed_min_words = embed_min_words
 
     async def start(self) -> None:
         import asyncpg
@@ -82,7 +85,13 @@ class PostgresChatHistory:
                 return
             try:
                 message_id = await self._insert(message)
-                if message_id is not None and self._embedding_worker is not None:
+                # Commands and short reactions are stored but not embedded:
+                # they carry nothing !pregunta could find.
+                if (
+                    message_id is not None
+                    and self._embedding_worker is not None
+                    and should_embed(message.text, self._embed_min_words)
+                ):
                     self._embedding_worker.enqueue(message_id, message.text)
             except Exception:  # noqa: BLE001 - persistence must not kill the bot
                 log.exception("Could not persist chat message %s", message.message_id)
@@ -90,7 +99,7 @@ class PostgresChatHistory:
                 self._queue.task_done()
 
     async def _insert(self, message: ChatMessage) -> int | None:
-        """Inserta el mensaje y devuelve el id generado, o None si ya existía."""
+        """Inserts the message and returns the generated id, or None if it already existed."""
         if self._pool is None:
             return None
         async with self._pool.acquire() as connection:
@@ -135,7 +144,13 @@ class PostgresChatHistory:
         ]
 
     async def flush(self) -> None:
-        """Wait until all queued messages have been inserted."""
+        """Wait until all queued messages have been inserted.
+
+        Without a worker (the database never connected) nothing consumes the
+        queue, and join() would wait forever.
+        """
+        if self._worker is None or self._worker.done():
+            return
         await self._queue.join()
 
     async def start_session(
@@ -154,6 +169,26 @@ class PostgresChatHistory:
                 started_at,
                 game_name,
             )
+
+    async def get_open_session(self, stream_id: str) -> datetime | None:
+        """Returns started_at of an open session (no ended_at), or None.
+
+        It recovers the real start time of the stream after the bot restarts,
+        so the context of a long session is not lost.
+        """
+        if self._pool is None:
+            return None
+        async with self._pool.acquire() as connection:
+            row = await connection.fetchrow(
+                """
+                SELECT started_at FROM stream_sessions
+                WHERE twitch_stream_id = $1 AND ended_at IS NULL
+                """,
+                stream_id,
+            )
+        if row:
+            return row["started_at"]
+        return None
 
     async def finish_session(
         self,
@@ -179,6 +214,25 @@ class PostgresChatHistory:
                 message_count,
                 summary,
             )
+        if summary:
+            await self._embed_summary(stream_id, summary)
+
+    async def set_session_summary(self, stream_id: str, summary: str) -> None:
+        """Stores a summary that arrived after the session was closed."""
+        if self._pool is None:
+            return
+        async with self._pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE stream_sessions SET summary = $2 WHERE twitch_stream_id = $1",
+                stream_id,
+                summary,
+            )
+        await self._embed_summary(stream_id, summary)
+
+    async def _embed_summary(self, stream_id: str, summary: str) -> None:
+        """Makes the stream findable by !pregunta through its summary."""
+        if self._embedding_worker is not None:
+            await self._embedding_worker.embed_session(stream_id, summary)
 
     async def stop(self) -> None:
         if self._worker is not None:

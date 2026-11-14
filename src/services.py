@@ -1,4 +1,4 @@
-"""Contenedor de dependencias compartido por todos los subsistemas."""
+"""Dependency container shared by every subsystem."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -17,8 +17,9 @@ from .twitch.auth import TwitchAuth
 from .twitch.helix import Helix
 from .llm_summary import LlmSummary
 
-if TYPE_CHECKING:  # evita imports circulares en runtime
+if TYPE_CHECKING:  # avoids circular imports at runtime
     from .chat_embeddings import EmbeddingWorker
+    from .chat_qa import ChatQA
     from .discord_presence.bot import PresenceBot
     from .twitch.chat import ChatClient
 
@@ -38,6 +39,7 @@ class Services:
     history: ChatHistory
     database_history: "PostgresChatHistory | None" = None
     embeddings: "EmbeddingWorker | None" = None
+    qa: "ChatQA | None" = None
     llm_summary: "LlmSummary | None" = None
     chat: "ChatClient | None" = None
     presence: "PresenceBot | None" = None

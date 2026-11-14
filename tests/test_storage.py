@@ -1,4 +1,4 @@
-"""Tests para src/storage.py
+"""Tests for src/storage.py
 
 Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 """
@@ -32,7 +32,7 @@ class TestJsonStore:
         store = JsonStore(tmp_path / "s.json")
         snapshot = store.all()
         snapshot["injected"] = True
-        # La mutación del snapshot no debe afectar el store interno
+        # Mutating the snapshot must not affect the internal store
         assert "injected" not in store.all()
 
     # -----------------------------------------------------------------------
@@ -44,7 +44,7 @@ class TestJsonStore:
         store = JsonStore(path)
         await store.set("name", "BotDucky")
 
-        # Verificar que el archivo realmente tiene el dato
+        # Check that the file really holds the data
         raw = json.loads(path.read_text(encoding="utf-8"))
         assert raw["name"] == "BotDucky"
 
@@ -98,7 +98,7 @@ class TestJsonStore:
         assert raw["token"] == "abc123"
 
     # -----------------------------------------------------------------------
-    # corrupción / recuperación
+    # corruption / recovery
     # -----------------------------------------------------------------------
 
     def test_JsonStore_read_WithCorruptFile_ReturnsEmptyDict(self, tmp_path: Path):
@@ -112,7 +112,7 @@ class TestJsonStore:
         path.write_text("{invalid}", encoding="utf-8")
         JsonStore(path)
         bak = path.with_suffix(".json.bak")
-        assert bak.exists(), "Debería haberse creado el .bak del archivo corrupto"
+        assert bak.exists(), "The .bak of the corrupted file should have been created"
 
     def test_JsonStore_read_WithEmptyFile_ReturnsEmptyDict(self, tmp_path: Path):
         path = tmp_path / "empty.json"
@@ -125,14 +125,14 @@ class TestJsonStore:
     # -----------------------------------------------------------------------
 
     async def test_JsonStore_set_Atomic_TmpFileRemovedAfterSuccess(self, tmp_path: Path):
-        """El archivo .tmp no debe quedar huérfano después de una escritura exitosa."""
+        """The .tmp file must not be left behind after a successful write."""
         store = JsonStore(tmp_path / "s.json")
         await store.set("x", 1)
         tmps = list(tmp_path.glob("*.tmp"))
         assert tmps == [], f"Quedaron archivos temporales: {tmps}"
 
     async def test_JsonStore_set_Concurrent_AllValuesPresent(self, tmp_path: Path):
-        """Escrituras concurrentes no corrompen el archivo."""
+        """Concurrent writes do not corrupt the file."""
         store = JsonStore(tmp_path / "s.json")
         keys = [f"key{i}" for i in range(20)]
         await asyncio.gather(*(store.set(k, i) for i, k in enumerate(keys)))

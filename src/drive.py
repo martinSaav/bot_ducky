@@ -1,7 +1,7 @@
-"""Subida a Google Drive con Service Account y upload resumible.
+"""Google Drive upload with a Service Account and resumable upload.
 
-El upload resumible no es un lujo: los clips pesan decenas de MB y un
-microcorte a mitad de una subida simple obliga a empezar de cero.
+The resumable upload is not a luxury: clips weigh tens of MB, and a brief
+network drop halfway through a simple upload means starting over.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files"
 FILES_URL = "https://www.googleapis.com/drive/v3/files"
 
-# Google exige que cada trozo (salvo el ultimo) sea multiplo de 256 KiB.
+# Google requires every chunk (except the last) to be a multiple of 256 KiB.
 CHUNK = 8 * 256 * 1024  # 2 MiB
 MAX_RETRIES = 5
 
@@ -43,9 +43,9 @@ class DriveUploader:
             try:
                 from google.oauth2 import service_account
             except ImportError as exc:  # pragma: no cover
-                raise DriveError("Falta google-auth: pip install -r requirements.txt") from exc
+                raise DriveError("google-auth is missing: pip install -r requirements.txt") from exc
             if not cfg.sa_path.exists():
-                raise DriveError(f"No existe el JSON de service account en {cfg.sa_path}")
+                raise DriveError(f"No service account JSON at {cfg.sa_path}")
             self._creds = service_account.Credentials.from_service_account_file(
                 str(cfg.sa_path), scopes=SCOPES
             )
@@ -60,7 +60,7 @@ class DriveUploader:
         return creds.token
 
     async def token(self) -> str:
-        # google-auth es sincrono; lo sacamos del event loop.
+        # google-auth is synchronous; run it off the event loop.
         return await asyncio.to_thread(self._token_sync)
 
     async def _headers(self) -> dict[str, str]:
@@ -68,7 +68,7 @@ class DriveUploader:
 
     # ------------------------------------------------------------------
     async def find(self, name: str) -> dict[str, Any] | None:
-        """Busca un archivo por nombre dentro de la carpeta destino."""
+        """Looks for a file by name in the destination folder."""
         safe = name.replace("\\", "\\\\").replace("'", "\\'")
         params = {
             "q": f"name = '{safe}' and '{cfg.gdrive_folder_id}' in parents and trashed = false",
@@ -87,9 +87,9 @@ class DriveUploader:
     async def upload(
         self, path: Path, *, name: str | None = None, description: str = ""
     ) -> dict[str, Any]:
-        """Sube un archivo y devuelve los metadatos creados."""
+        """Uploads a file and returns the created metadata."""
         if not cfg.gdrive_folder_id:
-            raise DriveError("GDRIVE_FOLDER_ID no esta configurado")
+            raise DriveError("GDRIVE_FOLDER_ID is not configured")
         name = name or path.name
         size = path.stat().st_size
 
@@ -118,15 +118,15 @@ class DriveUploader:
                 body = await resp.text()
                 if "storageQuotaExceeded" in body:
                     raise DriveError(
-                        "La service account no tiene cuota propia en Drive. "
-                        "La carpeta destino tiene que estar en una Unidad compartida "
-                        "con la service account como Administrador de contenido. "
-                        "Ver el README, seccion Google Drive."
+                        "The service account has no storage quota of its own in Drive. "
+                        "The destination folder must be in a Shared Drive, "
+                        "with the service account as Content manager. "
+                        "See the README, Google Drive section."
                     )
-                raise DriveError(f"No se pudo iniciar la subida ({resp.status}): {body}")
+                raise DriveError(f"Could not start the upload ({resp.status}): {body}")
             location = resp.headers.get("Location")
         if not location:
-            raise DriveError("Google no devolvio la Location de la sesion de subida")
+            raise DriveError("Google returned no Location for the upload session")
         return location
 
     async def _upload_chunks(self, session_uri: str, path: Path, size: int) -> dict[str, Any]:
@@ -150,20 +150,20 @@ class DriveUploader:
                             log.info("Uploaded %s (%.1f MB)", path.name, size / 1e6)
                             return await resp.json(content_type=None)
                         if status == 308:
-                            # Google confirma hasta que byte recibio; seguimos desde ahi.
+                            # Google confirms up to which byte it received; continue from there.
                             offset = self._resume_offset(resp.headers.get("Range"), end)
                             attempts = 0
                             continue
                         if status in (408, 429, 500, 502, 503, 504):
                             raise aiohttp.ClientError(f"HTTP {status} recuperable")
                         raise DriveError(
-                            f"Subida fallo ({status}): {await resp.text()}"
+                            f"Upload failed ({status}): {await resp.text()}"
                         )
                 except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
                     attempts += 1
                     if attempts > MAX_RETRIES:
                         raise DriveError(
-                            f"Subida de {path.name} abortada tras {MAX_RETRIES} reintentos: {exc}"
+                            f"Upload of {path.name} aborted after {MAX_RETRIES} retries: {exc}"
                         ) from exc
                     wait = 2 ** attempts
                     log.warning(
@@ -172,7 +172,7 @@ class DriveUploader:
                     )
                     await asyncio.sleep(wait)
                     offset = await self._query_offset(session_uri, size, fallback=offset)
-        raise DriveError(f"La subida de {path.name} termino sin confirmacion de Google")
+        raise DriveError(f"The upload of {path.name} ended without confirmation from Google")
 
     @staticmethod
     def _resume_offset(range_header: str | None, end: int) -> int:
@@ -184,7 +184,7 @@ class DriveUploader:
         return end + 1
 
     async def _query_offset(self, session_uri: str, size: int, *, fallback: int) -> int:
-        """Pregunta a Google cuantos bytes tiene antes de reanudar."""
+        """Asks Google how many bytes it has before resuming."""
         headers = {"Content-Length": "0", "Content-Range": f"bytes */{size}"}
         try:
             async with self.session.put(session_uri, headers=headers) as resp:

@@ -1,7 +1,7 @@
-"""Cliente de chat de Twitch: IRC sobre WebSocket (wss://irc-ws.chat.twitch.tv).
+"""Twitch chat client: IRC over WebSocket (wss://irc-ws.chat.twitch.tv).
 
-No usa librerias de terceros: el protocolo IRC de Twitch es chico y estable,
-y asi evitamos romper el bot cada vez que un wrapper cambia de API mayor.
+No third-party libraries: Twitch's IRC protocol is small and stable, and
+this way the bot does not break every time a wrapper ships a major API change.
 """
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ log = logging.getLogger("twitch.chat")
 
 WS_URL = "wss://irc-ws.chat.twitch.tv:443"
 
-# Twitch corta la conexion si superas el limite. 20 msg/30s para cuentas
-# normales, 100 para moderadores del canal. Nos quedamos por debajo.
+# Twitch drops the connection if you exceed the limit: 20 msg/30s for regular
+# accounts, 100 for channel moderators. We stay below that.
 RATE_NORMAL = (18, 30.0)
 RATE_MOD = (90, 30.0)
 
@@ -43,7 +43,7 @@ def _unescape_tag(value: str) -> str:
 
 
 def parse_line(line: str) -> tuple[dict[str, str], str, str, list[str], str | None]:
-    """Parsea una linea IRCv3 -> (tags, prefix, comando, args, trailing)."""
+    """Parses an IRCv3 line -> (tags, prefix, command, args, trailing)."""
     tags: dict[str, str] = {}
     rest = line
     if rest.startswith("@"):
@@ -96,12 +96,12 @@ class ChatMessage:
 
     @property
     def is_privileged(self) -> bool:
-        """Mod, VIP o el propio streamer: puede usar comandos de control."""
+        """Mod, VIP or the streamer: can use control commands."""
         return self.is_mod or self.is_vip
 
 
 class RateLimiter:
-    """Token bucket por ventana deslizante."""
+    """Sliding-window token bucket."""
 
     def __init__(self, limit: int, window: float):
         self.limit = limit
@@ -123,7 +123,7 @@ class RateLimiter:
 
 
 class ChatClient:
-    """Conexion persistente al chat con reconexion automatica."""
+    """Persistent chat connection with automatic reconnection."""
 
     def __init__(
         self,
@@ -143,20 +143,23 @@ class ChatClient:
         self._connected = asyncio.Event()
         self._stop = False
         self._auth_failed = False
+        # Messages being handled. Strong references keep asyncio from
+        # garbage-collecting a task that is still running.
+        self._handlers: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     async def send_raw(self, line: str) -> None:
         ws = self._ws
         if ws is None or ws.closed:
-            raise ConnectionError("Chat desconectado")
+            raise ConnectionError("Chat disconnected")
         await ws.send_str(line + "\r\n")
 
     async def say(self, text: str, reply_to: str | None = None) -> None:
-        """Manda un mensaje al canal, respetando el rate limit."""
+        """Sends a message to the channel, respecting the rate limit."""
         text = " ".join(text.split())
         if not text:
             return
-        # Twitch corta en 500 caracteres; partimos en trozos para no perder texto.
+        # Twitch cuts at 500 characters; the text is split into chunks so none is lost.
         for chunk in [text[i : i + 480] for i in range(0, len(text), 480)] or [""]:
             await self.limiter.acquire()
             prefix = f"@reply-parent-msg-id={reply_to} " if reply_to else ""
@@ -165,7 +168,7 @@ class ChatClient:
             except ConnectionError:
                 log.warning("Message discarded, chat disconnected: %r", chunk[:60])
                 return
-            reply_to = None  # solo el primer trozo responde
+            reply_to = None  # only the first chunk is a reply
 
     async def wait_ready(self, timeout: float = 30.0) -> bool:
         try:
@@ -186,7 +189,7 @@ class ChatClient:
                 backoff = 1.0
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:  # noqa: BLE001 - el loop nunca debe morir
+            except Exception as exc:  # noqa: BLE001 - the loop must never die
                 log.warning("Chat dropped (%s). Reconnecting in %.0fs", exc, backoff)
             finally:
                 self._connected.clear()
@@ -224,7 +227,7 @@ class ChatClient:
             await self.send_raw(f"PONG :{trailing or 'tmi.twitch.tv'}")
             return
 
-        if command == "001":  # RPL_WELCOME: login aceptado
+        if command == "001":  # RPL_WELCOME: login accepted
             await self.send_raw(f"JOIN #{self.channel}")
             return
 
@@ -234,7 +237,7 @@ class ChatClient:
             return
 
         if command == "USERSTATE":
-            # Si somos mod del canal podemos subir el limite de envio.
+            # If we are a channel mod, the send limit can be raised.
             badges = {b.split("/")[0] for b in tags.get("badges", "").split(",") if b}
             if tags.get("mod") == "1" or badges & {"moderator", "broadcaster"}:
                 self.limiter.configure(*RATE_MOD)
@@ -270,8 +273,15 @@ class ChatClient:
                 tags=tags,
             )
             if message.author == self.nick:
-                return  # no reaccionamos a nuestros propios mensajes
-            try:
-                await self.on_message(message)
-            except Exception:  # noqa: BLE001
-                log.exception("Error processing message from %s", message.author)
+                return  # we do not react to our own messages
+            # In its own task: a slow command (!resumen calls an LLM) must not
+            # stop the loop from reading PINGs and the next messages.
+            task = asyncio.create_task(self._process(message), name="chat-message")
+            self._handlers.add(task)
+            task.add_done_callback(self._handlers.discard)
+
+    async def _process(self, message: ChatMessage) -> None:
+        try:
+            await self.on_message(message)
+        except Exception:  # noqa: BLE001
+            log.exception("Error processing message from %s", message.author)

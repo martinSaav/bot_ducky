@@ -1,4 +1,4 @@
-"""Tests para src/chat_history.py
+"""Tests for src/chat_history.py
 
 Naming: [MethodName]_[Scenario/State]_[ExpectedResult]
 """
@@ -35,13 +35,13 @@ class TestChatHistoryAdd:
         assert recent[0].text == "que buena jugada"
 
     def test_add_NormalizesWhitespace(self, history: ChatHistory):
-        """Espacios múltiples se colapsan en uno."""
+        """Multiple spaces collapse into one."""
         msg = make_message(text="hola   mundo")
         history.add(msg)
         assert history.since(60)[0].text == "hola mundo"
 
     def test_add_WhenMaxMessagesReached_DroppsOldest(self):
-        """La deque descarta el mensaje más viejo al superar maxlen."""
+        """The deque drops the oldest message when it exceeds maxlen."""
         h = ChatHistory(max_messages=3)
         for i in range(5):
             h.add(make_message(text=f"msg{i}", author=f"user{i}", message_id=str(i)))
@@ -56,15 +56,15 @@ class TestChatHistorySince:
 
     def test_since_WithOldMessages_FiltersThemOut(self, history: ChatHistory):
         history.add(make_message(text="viejo", message_id="1"))
-        # Inyectamos manualmente una entrada con timestamp pasado
+        # Manually inject an entry with a past timestamp
         old = HistoryEntry(
             author_id="99",
             display_name="OldUser",
             text="mensaje viejo",
-            created_at=time.time() - 7200,  # hace 2 horas
+            created_at=time.time() - 7200,  # 2 hours ago
         )
         history._messages.append(old)
-        # Pedimos solo la última hora
+        # Ask for the last hour only
         recent = history.since(3600)
         texts = [e.text for e in recent]
         assert "mensaje viejo" not in texts
@@ -74,10 +74,10 @@ class TestChatHistorySince:
         assert history.since(3600) == []
 
     def test_since_WithZeroSeconds_ReturnsEmpty(self, history: ChatHistory):
-        """Ventana de 0s no debería devolver mensajes recientes (cutoff = now)."""
+        """A 0s window should not return recent messages (cutoff = now)."""
         history.add(make_message(text="ahora mismo"))
         result = history.since(0)
-        # created_at >= time.time() es casi imposible que sea True
+        # created_at >= time.time() is almost never True
         assert len(result) == 0
 
 

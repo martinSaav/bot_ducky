@@ -10,19 +10,19 @@ addopts = [
 [tool.coverage.run]
 source = ["src"]
 omit = [
-    "src/discord_presence/*",  # requiere discord.py instalado
-    "src/drive.py",            # I/O pesada con Google Drive
-    "src/agent_server.py",     # servidor HTTP de integración
-    "src/chat_control.py",     # servidor TCP local
-    "src/clips/pipeline.py",   # I/O pesada: yt-dlp + Google Drive
-    "src/logging_setup.py",    # configuración de logging, trivial
-    "src/riot/lol.py",         # cliente HTTP externo (Riot API)
-    "src/riot/valorant.py",    # cliente HTTP externo (HenrikDev)
-    "src/twitch/auth.py",      # flujo OAuth con servidor local
-    "src/twitch/helix.py",     # cliente HTTP externo (Twitch API)
-    "src/chat_embeddings.py",  # cliente HTTP externo (OpenAI embeddings)
-    "src/chat_history_db.py",  # requiere asyncpg + PostgreSQL real
-    "src/llm_summary.py",      # cliente HTTP externo (LLM)
+    "src/discord_presence/*",  # requires discord.py installed
+    "src/drive.py",            # heavy I/O with Google Drive
+    "src/agent_server.py",     # integration HTTP server
+    "src/chat_control.py",     # local TCP server
+    "src/clips/pipeline.py",   # heavy I/O: yt-dlp + Google Drive
+    "src/logging_setup.py",    # logging configuration, trivial
+    "src/riot/lol.py",         # external HTTP client (Riot API)
+    "src/riot/valorant.py",    # external HTTP client (HenrikDev)
+    "src/twitch/auth.py",      # OAuth flow with a local server
+    "src/twitch/helix.py",     # external HTTP client (Twitch API)
+    "src/chat_embeddings.py",  # external HTTP client (OpenAI embeddings)
+    "src/chat_history_db.py",  # requires asyncpg + a real PostgreSQL
+    "src/llm_summary.py",      # external HTTP client (LLM)
 ]
 
 [tool.coverage.report]

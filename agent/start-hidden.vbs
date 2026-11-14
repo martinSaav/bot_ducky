@@ -1,13 +1,13 @@
-' Lanza el agente sin ventana de consola.
+' Launches the agent without a console window.
 '
-' El .exe es una aplicacion de consola a proposito, para que --once, --scan y
-' --help sirvan desde la terminal. Para el arranque automatico se lo llama
-' desde aca, que lo corre con la ventana oculta (el 0 del Run).
+' The .exe is a console application on purpose, so --once, --scan and --help
+' work from a terminal. For the automatic start it is called from here, which
+' runs it with the window hidden (the 0 in Run).
 
-Dim shell, fso, carpeta
+Dim shell, fso, folder
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
-carpeta = fso.GetParentFolderName(WScript.ScriptFullName)
-shell.CurrentDirectory = carpeta
-shell.Run """" & carpeta & "\twitch-game-agent.exe""", 0, False
+folder = fso.GetParentFolderName(WScript.ScriptFullName)
+shell.CurrentDirectory = folder
+shell.Run """" & folder & "\twitch-game-agent.exe""", 0, False

@@ -1,4 +1,4 @@
-"""Control local para enviar mensajes mediante la conexión IRC existente."""
+"""Local control for sending messages through the existing IRC connection."""
 from __future__ import annotations
 
 from typing import Any
@@ -23,15 +23,15 @@ class ChatControlServer:
         try:
             data: Any = await request.json()
         except Exception:  # noqa: BLE001
-            return web.json_response({"error": "json invalido"}, status=400)
+            return web.json_response({"error": "invalid json"}, status=400)
 
         text = data.get("text") if isinstance(data, dict) else None
         if not isinstance(text, str) or not text.strip():
-            return web.json_response({"error": "'text' debe ser texto"}, status=400)
+            return web.json_response({"error": "'text' must be a string"}, status=400)
         text = " ".join(text.split())
         if len(text) > MAX_MESSAGE:
             return web.json_response(
-                {"error": f"el mensaje supera los {MAX_MESSAGE} caracteres"},
+                {"error": f"the message exceeds {MAX_MESSAGE} characters"},
                 status=400,
             )
 
