@@ -1,5 +1,5 @@
 import { Component, inject } from '@angular/core';
-import { AsyncPipe, DecimalPipe } from '@angular/common';
+import { AsyncPipe } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { PredictionCardComponent } from './components/prediction-card/prediction-card';
 import { ChatFeedComponent } from './components/chat-feed/chat-feed';
@@ -15,7 +15,6 @@ import { ClockService, formatElapsed } from './services/clock';
   standalone: true,
   imports: [
     AsyncPipe,
-    DecimalPipe,
     MatIconModule,
     MatchCardComponent,
     StatsStripComponent,

@@ -91,6 +91,15 @@ export interface StreamStatus {
   game?: string | null;
 }
 
+/** The desktop agent that last reported; null until one connects. */
+export interface AgentInfo {
+  version: string;
+  host: string;
+  /** Version this bot was released with (agent/Cargo.toml). */
+  expected: string;
+  outdated: boolean;
+}
+
 export interface BuildInfo {
   commit: string;
   built_at: string;
@@ -115,6 +124,7 @@ export interface BotStatus {
   stream?: StreamStatus;
   match?: MatchStatus | null;
   chat?: ChatActivity;
+  agent?: AgentInfo | null;
 }
 
 export interface WsEvent {

@@ -150,6 +150,8 @@ class AgentServer:
                 return web.json_response({"error": "'metadata' must be an object or null"}, status=400)
 
         host = data.get("host")
+        if isinstance(host, str) and self.status_provider is not None:
+            self.status_provider.update_agent(str(data.get("agent_version", "?"))[:20], host[:60])
         if isinstance(host, str) and host != self._last_host:
             log.info(
                 "Agent v%s connected from %s",

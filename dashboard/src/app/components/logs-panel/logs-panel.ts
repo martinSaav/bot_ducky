@@ -3,10 +3,10 @@ import { MatIconModule } from '@angular/material/icon';
 import { Subscription, timer } from 'rxjs';
 import { BotApiService } from '../../services/bot-api';
 
-type Level = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
+export type Level = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
 type Filter = 'all' | 'warnings' | 'errors';
 
-interface LogEntry {
+export interface LogEntry {
   time: string;
   level: Level;
   tag: string;
@@ -121,7 +121,7 @@ export class LogsPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
   paused = signal(false);
   private lines = signal<string[]>([]);
 
-  entries = computed(() => parse(this.lines()));
+  entries = computed(() => parseLogs(this.lines()));
   counts = computed(() => {
     const counts: Record<Level, number> = { DEBUG: 0, INFO: 0, WARNING: 0, ERROR: 0 };
     for (const e of this.entries()) counts[e.level]++;
@@ -170,7 +170,7 @@ export class LogsPanelComponent implements OnInit, OnDestroy, AfterViewChecked {
 }
 
 /** Log lines to entries; lines without a header (tracebacks) join the previous entry. */
-function parse(lines: string[]): LogEntry[] {
+export function parseLogs(lines: string[]): LogEntry[] {
   const entries: LogEntry[] = [];
   for (const line of lines) {
     const m = LINE.exec(line);

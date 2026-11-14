@@ -160,17 +160,21 @@ export class MatchCardComponent {
     return formatElapsed(this.clock.now() / 1000 - since);
   }
 
-  /** true = win, false = loss, null = unknown (tie, no result yet). */
   won(last: LastMatch): boolean | null {
-    if (last.result === 'win') return true;
-    if (last.result === 'loss') return false;
-    if (last.score && last.score.ally !== last.score.enemy) return last.score.ally > last.score.enemy;
-    return null;
+    return lastMatchResult(last).won;
   }
 
   resultText(last: LastMatch): string {
-    const won = this.won(last);
-    const letter = won === true ? 'W' : won === false ? 'L' : '–';
-    return last.score ? `${letter} ${last.score.ally}–${last.score.enemy}` : letter;
+    return lastMatchResult(last).text;
   }
+}
+
+/** won: true = win, false = loss, null = unknown (tie, no result yet). */
+export function lastMatchResult(last: LastMatch): { won: boolean | null; text: string } {
+  let won: boolean | null = null;
+  if (last.result === 'win') won = true;
+  else if (last.result === 'loss') won = false;
+  else if (last.score && last.score.ally !== last.score.enemy) won = last.score.ally > last.score.enemy;
+  const letter = won === true ? 'W' : won === false ? 'L' : '–';
+  return { won, text: last.score ? `${letter} ${last.score.ally}–${last.score.enemy}` : letter };
 }

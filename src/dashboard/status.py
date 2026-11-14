@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from ..agent_version import EXPECTED_AGENT_VERSION, is_outdated
 from ..build_info import build_info
 from ..config import cfg
 
@@ -132,6 +133,12 @@ class StatusProvider:
         self.start_time: float = time.time()
         # Latest stream check from run.monitor_stream; live None = not checked yet.
         self._stream: dict[str, Any] = {"live": None}
+        # The agent that last reported: version and PC name. None until one connects.
+        self._agent: dict[str, str] | None = None
+
+    def update_agent(self, version: str, host: str) -> None:
+        """Called on every agent report."""
+        self._agent = {"version": version, "host": host}
 
     def update_stream(self, stream: dict[str, Any] | None) -> None:
         """Result of the latest /helix/streams check (None = offline)."""
@@ -256,6 +263,11 @@ class StatusProvider:
                 "last_hour": len(self.history.since(3600)),
             },
             "match": self._match(sources_raw.get("agent")),
+            "agent": None if self._agent is None else {
+                **self._agent,
+                "expected": EXPECTED_AGENT_VERSION,
+                "outdated": is_outdated(self._agent["version"]),
+            },
             "ws_clients": self.broadcaster.count,
             "build": build_info(),
             "snapshot_at": time.time(),

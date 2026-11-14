@@ -192,3 +192,34 @@ class TestPredictionTiming:
         })
 
         assert provider.snapshot()["prediction"]["created_at"] is None
+
+
+# ===========================================================================
+# Agent version on the dashboard
+# ===========================================================================
+
+class TestAgentInfo:
+
+    def test_snapshot_WhenNoAgentConnected_HasNoAgent(self, tmp_path):
+        assert _provider(tmp_path).snapshot()["agent"] is None
+
+    def test_snapshot_WhenAgentIsOld_FlagsItOutdated(self, tmp_path):
+        from src.agent_version import EXPECTED_AGENT_VERSION
+
+        provider = _provider(tmp_path)
+        provider.update_agent("0.0.1", "DESKTOP-KPSHI8S")
+
+        assert provider.snapshot()["agent"] == {
+            "version": "0.0.1",
+            "host": "DESKTOP-KPSHI8S",
+            "expected": EXPECTED_AGENT_VERSION,
+            "outdated": True,
+        }
+
+    def test_snapshot_WhenAgentIsCurrent_IsNotOutdated(self, tmp_path):
+        from src.agent_version import EXPECTED_AGENT_VERSION
+
+        provider = _provider(tmp_path)
+        provider.update_agent(EXPECTED_AGENT_VERSION, "DESKTOP-KPSHI8S")
+
+        assert provider.snapshot()["agent"]["outdated"] is False

@@ -142,3 +142,46 @@ class TestDashboardToken:
             cfg.dashboard_token = ""
             response = await _dashboard_server().handle_status(request)
         assert response.status == 200
+
+
+# ===========================================================================
+# Agent version: which agent is installed on her PC
+# ===========================================================================
+
+class TestAgentVersion:
+
+    def test_expectedVersion_MatchesTheAgentBeingBuilt(self):
+        # The bot warns when the agent is older than this; it must follow
+        # agent/Cargo.toml, or every agent would look outdated (or none).
+        import re
+        from src.agent_version import EXPECTED_AGENT_VERSION
+
+        cargo = (Path(__file__).resolve().parent.parent / "agent" / "Cargo.toml").read_text(encoding="utf-8")
+        version = re.search(r'^version\s*=\s*"([^"]+)"', cargo, re.MULTILINE).group(1)
+        assert EXPECTED_AGENT_VERSION == version
+
+    @pytest.mark.parametrize("version, outdated", [
+        ("0.1.0", True),
+        ("0.2.0", False),
+        ("0.10.0", False),   # compared as numbers, not text
+        ("1.0.0", False),    # newer than this bot knows: not "outdated"
+        ("?", False),        # unknown: do not raise a false alarm
+    ])
+    def test_isOutdated_ComparesVersionsAsNumbers(self, version, outdated):
+        from src.agent_version import is_outdated
+        assert is_outdated(version, expected="0.2.0") is outdated
+
+    async def test_handleGame_RecordsTheAgentVersionAndHost(self):
+        from unittest.mock import AsyncMock
+
+        arbiter = MagicMock(report=AsyncMock())
+        provider = MagicMock()
+        request = make_mocked_request("POST", "/game", headers={"Authorization": "Bearer s3cret"})
+        body = {"game": "VALORANT", "host": "DESKTOP-KPSHI8S", "agent_version": "0.1.0"}
+
+        with patch("src.agent_server.cfg") as cfg, \
+             patch.object(web.Request, "json", AsyncMock(return_value=body)):
+            cfg.agent_token = "s3cret"
+            await AgentServer(arbiter, status_provider=provider).handle_game(request)
+
+        provider.update_agent.assert_called_once_with("0.1.0", "DESKTOP-KPSHI8S")

@@ -2,11 +2,11 @@ import { Component, inject } from '@angular/core';
 import { AsyncPipe } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { BotApiService } from '../../services/bot-api';
-import { BotStatus } from '../../models/bot-status';
+import { AgentInfo, BotStatus } from '../../models/bot-status';
 
-type Level = 'ok' | 'warn' | 'error' | 'off';
+export type Level = 'ok' | 'warn' | 'error' | 'off';
 
-interface HealthRow {
+export interface HealthRow {
   name: string;
   icon: string;
   level: Level;
@@ -68,58 +68,82 @@ export class HealthCardComponent {
   api = inject(BotApiService);
 
   issueCount(s: BotStatus): number {
-    return this.rows(s).filter(row => row.level === 'warn' || row.level === 'error').length;
+    return issueCount(s);
   }
 
   rows(s: BotStatus): HealthRow[] {
-    const sub = s.subsystems;
-    const lol = s.riot.lol;
-    return [
-      this.source(s, 'agent', 'Desktop agent', 'computer', sub.agent),
-      this.source(s, 'discord', 'Discord presence', 'headset_mic', sub.discord_presence),
-      {
-        name: 'Auto-categorizer', icon: 'category',
-        level: s.autocat_enabled ? 'ok' : 'warn',
-        detail: s.autocat_enabled
-          ? `on · following ${s.current_source ?? 'no source'}`
-          : 'off · !auto on to resume',
-      },
-      {
-        name: 'Chat bot', icon: 'chat',
-        level: sub.chat_bot ? 'ok' : 'error',
-        detail: sub.chat_bot ? `connected as ${s.bot_login}` : 'not running',
-      },
-      {
-        name: 'Riot API', icon: 'shield',
-        level: lol.key_dead ? 'error' : lol.configured ? 'ok' : 'off',
-        detail: lol.key_dead ? 'key expired · renew it' : lol.configured ? 'LoL stats' : 'not configured',
-      },
-      this.toggle('HenrikDev', 'sports_esports', s.riot.valorant.configured, 'Valorant stats'),
-      this.toggle('LLM', 'smart_toy', sub.llm_summary, 'summaries and !pregunta'),
-      this.toggle('Database', 'storage', sub.database, 'chat history'),
-      this.toggle('Chat memory', 'hub', sub.embeddings, '!pregunta ready'),
-      this.toggle('Clips to Drive', 'movie', sub.clips_pipeline, 'daily upload'),
-    ];
+    return healthRows(s);
   }
+}
 
-  private source(s: BotStatus, key: string, name: string, icon: string, enabled: boolean): HealthRow {
-    const src = s.sources[key];
-    if (!enabled) return { name, icon, level: 'off', detail: 'not configured' };
-    // Off stream, a silent source is expected (her PC or Discord may be off):
-    // it only needs attention while she is live.
-    const live = s.stream?.live !== false;
-    if (!src) return { name, icon, level: live ? 'warn' : 'off', detail: live ? 'no reports yet' : 'idle' };
-    if (src.stale) {
-      return live
-        ? { name, icon, level: 'error', detail: `silent · last report ${ago(src.age_seconds)}` }
-        : { name, icon, level: 'off', detail: `idle · last report ${ago(src.age_seconds)}` };
-    }
-    return { name, icon, level: 'ok', detail: `${src.game ?? 'no game'} · ${ago(src.age_seconds)}` };
-  }
+/** Rows needing attention: warnings and errors. */
+export function issueCount(s: BotStatus): number {
+  return healthRows(s).filter(row => row.level === 'warn' || row.level === 'error').length;
+}
 
-  private toggle(name: string, icon: string, on: boolean, detail: string): HealthRow {
-    return { name, icon, level: on ? 'ok' : 'off', detail: on ? detail : 'not configured' };
+/** One row per part of the bot, from the status snapshot. */
+export function healthRows(s: BotStatus): HealthRow[] {
+  const sub = s.subsystems;
+  const lol = s.riot.lol;
+  return [
+    withAgentVersion(sourceRow(s, 'agent', 'Desktop agent', 'computer', sub.agent), s.agent),
+    sourceRow(s, 'discord', 'Discord presence', 'headset_mic', sub.discord_presence),
+    {
+      name: 'Auto-categorizer', icon: 'category',
+      level: s.autocat_enabled ? 'ok' : 'warn',
+      detail: s.autocat_enabled
+        ? `on · following ${s.current_source ?? 'no source'}`
+        : 'off · !auto on to resume',
+    },
+    {
+      name: 'Chat bot', icon: 'chat',
+      level: sub.chat_bot ? 'ok' : 'error',
+      detail: sub.chat_bot ? `connected as ${s.bot_login}` : 'not running',
+    },
+    {
+      name: 'Riot API', icon: 'shield',
+      level: lol.key_dead ? 'error' : lol.configured ? 'ok' : 'off',
+      detail: lol.key_dead ? 'key expired · renew it' : lol.configured ? 'LoL stats' : 'not configured',
+    },
+    toggleRow('HenrikDev', 'sports_esports', s.riot.valorant.configured, 'Valorant stats'),
+    toggleRow('LLM', 'smart_toy', sub.llm_summary, 'summaries and !pregunta'),
+    toggleRow('Database', 'storage', sub.database, 'chat history'),
+    toggleRow('Chat memory', 'hub', sub.embeddings, '!pregunta ready'),
+    toggleRow('Clips to Drive', 'movie', sub.clips_pipeline, 'daily upload'),
+  ];
+}
+
+function sourceRow(s: BotStatus, key: string, name: string, icon: string, enabled: boolean): HealthRow {
+  const src = s.sources[key];
+  if (!enabled) return { name, icon, level: 'off', detail: 'not configured' };
+  // Off stream, a silent source is expected (her PC or Discord may be off):
+  // it only needs attention while she is live.
+  const live = s.stream?.live !== false;
+  if (!src) return { name, icon, level: live ? 'warn' : 'off', detail: live ? 'no reports yet' : 'idle' };
+  if (src.stale) {
+    return live
+      ? { name, icon, level: 'error', detail: `silent · last report ${ago(src.age_seconds)}` }
+      : { name, icon, level: 'off', detail: `idle · last report ${ago(src.age_seconds)}` };
   }
+  return { name, icon, level: 'ok', detail: `${src.game ?? 'no game'} · ${ago(src.age_seconds)}` };
+}
+
+/**
+ * Adds the installed version to the agent row. An agent older than this bot
+ * expects needs attention even off stream: that is the time to update it.
+ */
+function withAgentVersion(row: HealthRow, agent: AgentInfo | null | undefined): HealthRow {
+  if (!agent) return row;
+  if (!agent.outdated) return { ...row, detail: `${row.detail} · v${agent.version}` };
+  return {
+    ...row,
+    level: row.level === 'error' ? 'error' : 'warn',
+    detail: `${row.detail} · v${agent.version}, update to ${agent.expected}`,
+  };
+}
+
+function toggleRow(name: string, icon: string, on: boolean, detail: string): HealthRow {
+  return { name, icon, level: on ? 'ok' : 'off', detail: on ? detail : 'not configured' };
 }
 
 function ago(seconds: number): string {
