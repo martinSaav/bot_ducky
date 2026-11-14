@@ -647,7 +647,7 @@ Three things to keep in mind when moving it to a Linux VPS:
 | The category never changes | The PRESENCE INTENT is missing, or the streamer has activity detection off, or she does not share a server with the bot. Check the log: it says which of the three. |
 | `storageQuotaExceeded` | The Drive folder is not in a Shared Drive. See the Google Drive section. |
 | `!lrank` replies that the key expired | Riot's Development Key lasts 24 h. Request a Personal Key. |
-| The agent does not reach the bot | Try `http://IP:8787/health` from her PC. If it does not answer: Tailscale is down, `AGENT_HOST` is not `0.0.0.0`, or the Windows firewall blocks the port. |
+| The agent does not reach the bot | `agent.log` says why in its "Bot unreachable at …" line. **No answer**: the bot's PC is off or asleep, Tailscale is down, or a firewall blocks the port. **Connection refused**: the PC is on but the bot is not running (is Docker up?). **Connected, but the bot did not answer**: it is starting or stuck. Try `http://IP:8787/health` from her PC. |
 | The agent reports but nothing changes | Different token in `.env` and `agent.toml` (a 401 shows up in the agent log), or `!auto off` is active. |
 | A prediction is not created | Run `twitch-game-agent.exe --once` on her PC with the game open: it shows what the local client reports. |
 | The dashboard stays on "Connecting to the bot…" | `DASHBOARD_TOKEN` is set and the browser does not have it: open `/dashboard/?token=<value>` once. |
