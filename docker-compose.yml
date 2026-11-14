@@ -22,6 +22,15 @@ services:
       - ./config:/app/config
       - ./downloads:/app/downloads
       - ./secrets:/app/secrets
+    # Marks the container unhealthy when /health stops answering (docker ps).
+    # Restarting a hung bot is the watchdog's job (src/watchdog.py): Docker
+    # only restarts a container whose process exits.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('AGENT_PORT', '8787'), timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       db:
         condition: service_healthy
@@ -46,6 +55,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Nightly pg_dump to ./backups, keeping the newest 7 (tools/db_backup.sh).
+  # Same image as the database, so pg_dump matches the server version.
+  db-backup:
+    image: pgvector/pgvector:pg18
+    container_name: ducky_db_backup
+    restart: unless-stopped
+    entrypoint: ["sh", "/db_backup.sh"]
+    environment:
+      TZ: America/Argentina/Buenos_Aires
+      PGHOST: db
+      PGPASSWORD: ${POSTGRES_PASSWORD:-duckypass}
+      POSTGRES_USER: ${POSTGRES_USER:-ducky}
+      POSTGRES_DB: ${POSTGRES_DB:-duckydb}
+      BACKUP_AT: "04:00"
+      BACKUP_KEEP: "7"
+    volumes:
+      - ./tools/db_backup.sh:/db_backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   ducky_pgdata:

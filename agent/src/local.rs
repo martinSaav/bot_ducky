@@ -111,6 +111,40 @@ pub fn get(url: &str, auth: Option<&str>) -> Fetch {
     parse_curl_output(&String::from_utf8_lossy(&output.stdout))
 }
 
+/// HTTPS POST of a JSON body through curl.exe: the agent has no TLS of its
+/// own. Unlike `get`, the certificate IS verified: this goes to the internet.
+pub fn post_json(url: &str, body: &str) -> Result<(), String> {
+    let mut cmd = Command::new("curl.exe");
+    cmd.args([
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "10",
+        "--header",
+        "Content-Type: application/json",
+        "--data-raw",
+        body,
+        "--output",
+        if cfg!(windows) { "NUL" } else { "/dev/null" },
+        "--write-out",
+        "%{http_code}",
+        url,
+    ]);
+    hide_window(&mut cmd);
+
+    let output = cmd.output().map_err(|e| format!("cannot start curl.exe: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("curl exit code {}: {}", output.status.code().unwrap_or(-1), stderr.trim()));
+    }
+    let status = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if status.starts_with('2') {
+        Ok(())
+    } else {
+        Err(format!("HTTP {status}"))
+    }
+}
+
 /// Splits the body from the HTTP status code that curl appends with --write-out.
 pub fn parse_curl_output(stdout: &str) -> Fetch {
     let Some((body, status)) = stdout.rsplit_once(STATUS_MARKER) else {

@@ -159,6 +159,19 @@ endpoint. The dashboard shows them under the agent source; if the backend is not
 available, they stay in the local file and are re-sent when the connection comes
 back.
 
+## Alert when the bot is down
+
+When the bot is down nobody finds out until the stream is over: the category
+does not change and no prediction opens. The agent notices, because every
+send fails. With `alert_webhook` set in `agent.toml`, it posts to a Discord
+channel after `alert_after_minutes` (3) of failures **while a game is
+running**, and again when the bot is back. One message per outage.
+
+To create the webhook: in Discord, the channel's settings > Integrations >
+Webhooks > New Webhook > Copy Webhook URL. The message goes out through
+`curl.exe`, like the local APIs, but verifying the certificate: it goes to
+the internet.
+
 ## Network
 
 The bot listens on port 8787. Since it runs on Martin's PC and the agent on hers,

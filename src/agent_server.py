@@ -39,11 +39,32 @@ MAX_BODY = 65536
 #: the arbiter falls back to Discord presence. That is 3 heartbeats of margin.
 STALE_AFTER = 210.0
 
+# agent.log rotates like bot.log: 5 files of 5 MB.
+AGENT_LOG_MAX_BYTES = 5 * 1024 * 1024
+AGENT_LOG_BACKUPS = 5
+
 # Directory where Angular puts its production build.
 _DIST_DIR = Path(__file__).resolve().parent.parent / "dashboard" / "dist" / "dashboard" / "browser"
 
 # Allowed CORS origins (Angular dev server + local production).
 _CORS_ORIGINS = {"http://localhost:4200", "http://127.0.0.1:4200"}
+
+
+def write_agent_logs(lines: list[str]) -> None:
+    """Appends the agent's log lines to logs/agent.log, rotating it when it
+    would pass AGENT_LOG_MAX_BYTES (agent.log.1 is the newest old file)."""
+    path = cfg.log_dir / "agent.log"
+    cfg.log_dir.mkdir(parents=True, exist_ok=True)
+    text = "\n".join(lines) + "\n"
+    if path.exists() and path.stat().st_size + len(text.encode("utf-8")) > AGENT_LOG_MAX_BYTES:
+        path.with_name(f"{path.name}.{AGENT_LOG_BACKUPS}").unlink(missing_ok=True)
+        for n in range(AGENT_LOG_BACKUPS - 1, 0, -1):
+            older = path.with_name(f"{path.name}.{n}")
+            if older.exists():
+                older.replace(path.with_name(f"{path.name}.{n + 1}"))
+        path.replace(path.with_name(f"{path.name}.1"))
+    with path.open("a", encoding="utf-8") as file:
+        file.write(text)
 
 
 def _cors_headers(request: web.Request) -> dict[str, str]:
@@ -140,11 +161,8 @@ class AgentServer:
         if isinstance(agent_logs, list):
             clean_logs = [line[:1000] for line in agent_logs if isinstance(line, str)]
             if clean_logs:
-                agent_log_file = cfg.log_dir / "agent.log"
                 try:
-                    cfg.log_dir.mkdir(parents=True, exist_ok=True)
-                    with agent_log_file.open("a", encoding="utf-8") as file:
-                        file.write("\n".join(clean_logs) + "\n")
+                    write_agent_logs(clean_logs)
                 except OSError:
                     log.exception("Could not persist agent logs")
 
@@ -169,10 +187,7 @@ class AgentServer:
         clean_logs = [line[:1000] for line in logs if isinstance(line, str)]
         if clean_logs:
             try:
-                agent_log_file = cfg.log_dir / "agent.log"
-                cfg.log_dir.mkdir(parents=True, exist_ok=True)
-                with agent_log_file.open("a", encoding="utf-8") as file:
-                    file.write("\n".join(clean_logs) + "\n")
+                write_agent_logs(clean_logs)
             except OSError:
                 log.exception("Could not persist agent logs")
                 return web.json_response({"error": "could not save the logs"}, status=500)

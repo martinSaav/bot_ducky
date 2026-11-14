@@ -4,6 +4,7 @@
 //! and tells the bot. It does not touch Twitch, stores nobody's credentials,
 //! and reports no process that is not declared in agent.toml.
 
+mod alert;
 mod clock;
 mod config;
 mod detect;
@@ -17,6 +18,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use alert::{Alert, Alerter};
 use config::Config;
 use detect::{Detected, Detector};
 use report::Reporter;
@@ -97,6 +99,10 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
     let mut ever_sent = false;
     let mut last_send = Instant::now();
     let mut failures: u32 = 0;
+    let mut alerter = cfg
+        .alert_webhook
+        .as_ref()
+        .map(|_| Alerter::new(Duration::from_secs(cfg.alert_after_minutes * 60)));
 
     loop {
         let current = detector.detect();
@@ -113,9 +119,16 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
         // A failed send leaves `ever_sent` false, so the next tick retries
         // without needing a separate queue.
         if changed || heartbeat_due {
-                match reporter.send(current.as_ref(), log.pending()) {
+            let game = current.as_ref().map(|d| d.game.clone());
+            let result = reporter.send(current.as_ref(), log.pending());
+            if let (Some(alerter), Some(hook)) = (alerter.as_mut(), cfg.alert_webhook.as_deref()) {
+                if let Some(alert) = alerter.observe(result.is_ok(), game.as_deref(), Instant::now()) {
+                    notify(hook, &alert, reporter.endpoint(), log);
+                }
+            }
+            match result {
                 Ok(()) => {
-                        log.clear_pending();
+                    log.clear_pending();
                     if identity_changed {
                         match &current {
                             Some(d) => {
@@ -149,6 +162,15 @@ fn run_loop(cfg: &Config, detector: &mut Detector, reporter: &Reporter, log: &mu
         }
 
         std::thread::sleep(poll);
+    }
+}
+
+/// Posts the alert to the Discord webhook; a failure is only logged.
+fn notify(hook: &str, alert: &Alert, endpoint: &str, log: &mut Logger) {
+    let text = alert::message(alert, report::host_port(endpoint));
+    match local::post_json(hook, &serde_json::json!({ "content": text }).to_string()) {
+        Ok(()) => log.info(&format!("Discord alert sent: {text}")),
+        Err(e) => log.warning(&format!("Could not send the Discord alert: {e}")),
     }
 }
 

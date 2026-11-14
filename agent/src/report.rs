@@ -133,7 +133,7 @@ pub fn describe_unreachable(endpoint: &str, error: &str) -> String {
 }
 
 /// "http://192.168.0.188:8787/game" -> "192.168.0.188:8787".
-fn host_port(endpoint: &str) -> &str {
+pub fn host_port(endpoint: &str) -> &str {
     let rest = endpoint.split_once("://").map_or(endpoint, |(_, rest)| rest);
     rest.split('/').next().unwrap_or(rest)
 }

@@ -21,6 +21,14 @@ heartbeat_seconds = 60
 
 log_file = "agent.log"
 
+# Discord alert when the bot cannot be reached while a game is running
+# (the bot cannot warn anyone when it is down; the agent notices). One
+# message per outage, and another when the bot is back. Optional.
+# Create it in Discord: channel settings > Integrations > Webhooks.
+# alert_webhook = "https://discord.com/api/webhooks/..."
+# Minutes of failed sends, with a game running, before alerting.
+# alert_after_minutes = 3
+
 # ---------------------------------------------------------------------------
 #  Games
 #

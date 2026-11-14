@@ -43,6 +43,7 @@ from src.twitch.auth import TwitchAuth
 from src.twitch.chat import ChatClient
 from src.twitch.chat import ChatMessage
 from src.twitch.helix import Helix
+from src.watchdog import LoopWatchdog, beat_forever
 
 log = logging.getLogger("run")
 
@@ -570,6 +571,11 @@ async def main() -> int:
                 # Windows does not support add_signal_handler; asyncio.run's
                 # KeyboardInterrupt handles it.
                 pass
+
+        # Restarts the process if the loop hangs (Docker restarts it after).
+        watchdog = LoopWatchdog(timeout=60)
+        watchdog.start()
+        tasks["watchdog"] = asyncio.create_task(beat_forever(watchdog), name="watchdog")
 
         log.info("All systems up. Ctrl+C to stop.")
         await wait_for_exit(tasks, stop)

@@ -25,3 +25,6 @@ htmlcov/
 
 # uv lockfile (dependencies are managed with requirements*.txt)
 uv.lock
+
+# Nightly database dumps (tools/db_backup.sh)
+backups/

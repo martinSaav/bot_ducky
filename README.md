@@ -33,7 +33,9 @@ partida?", "Gana", "Pierde") and the end-of-stream summary.
 
 ## Requirements
 
-- Python 3.10 or newer (tested on 3.14)
+- Python 3.12, the version the Docker image and CI use. The dependencies are
+  pinned to exact versions (`requirements.txt`): to upgrade one, change it
+  there, run the tests and rebuild the image
 - On the streamer's PC, only the agent from [`agent/`](agent/README.md): a ~1 MB
   executable with no runtime dependencies. It is optional — without it, the
   category is synced from Discord presence.
@@ -588,6 +590,22 @@ dashboard ("Build"). The image also builds the dashboard itself, served at
 `.env` reaches the container through `env_file`, and `data/`, `logs/`,
 `config/` and `secrets/` are mounted volumes: none of them is copied into the
 image.
+
+**What keeps it running**
+
+| Problem | What handles it |
+|---|---|
+| The process crashes | `restart: unless-stopped`: Docker starts it again |
+| The bot hangs (its event loop stops) | A watchdog thread ends the process after 60 s without a heartbeat, and Docker restarts it. `docker ps` also shows the container as `unhealthy` when `/health` stops answering |
+| The bot is down while she plays | The agent posts to Discord after 3 minutes (`alert_webhook` in `agent.toml`, see [`agent/README.md`](agent/README.md)) |
+| The database is lost | `db-backup` dumps it every night at 04:00 to `backups/`, keeping the last 7. They are on the same disk: copy them elsewhere now and then |
+
+Start everything, the backup service included, with `docker compose up -d`. To
+restore a backup (it replaces the current data):
+
+```bash
+docker compose exec -T db pg_restore -U ducky -d duckydb --clean --if-exists < backups/duckydb-2026-11-14.dump
+```
 
 **Windows (Task Scheduler)** — create a task:
 

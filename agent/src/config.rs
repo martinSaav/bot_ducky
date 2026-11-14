@@ -27,6 +27,15 @@ pub struct Config {
     #[serde(default = "default_log")]
     pub log_file: PathBuf,
 
+    /// Discord webhook that gets a message when the bot cannot be reached
+    /// while a game is running. Optional: without it there are no alerts.
+    #[serde(default)]
+    pub alert_webhook: Option<String>,
+
+    /// Minutes of failed sends (with a game running) before alerting.
+    #[serde(default = "default_alert_after")]
+    pub alert_after_minutes: u64,
+
     /// Games to detect. Only these are reported: anything not listed here
     /// never leaves the machine.
     pub games: Vec<GameRule>,
@@ -52,6 +61,10 @@ fn default_poll() -> u64 {
 
 fn default_heartbeat() -> u64 {
     60
+}
+
+fn default_alert_after() -> u64 {
+    3
 }
 
 fn default_log() -> PathBuf {
@@ -107,6 +120,17 @@ impl Config {
                 return Err(format!("Game '{}' has no 'processes'", game.name));
             }
         }
+        if let Some(hook) = &self.alert_webhook {
+            let discord = ["https://discord.com/api/webhooks/", "https://discordapp.com/api/webhooks/"];
+            if !discord.iter().any(|prefix| hook.starts_with(prefix)) {
+                return Err(
+                    "'alert_webhook' must be a Discord webhook URL (https://discord.com/api/webhooks/...)".into(),
+                );
+            }
+            if self.alert_after_minutes == 0 {
+                return Err("'alert_after_minutes' must be at least 1".into());
+            }
+        }
         Ok(())
     }
 
@@ -142,6 +166,8 @@ mod tests {
             poll_seconds: 5,
             heartbeat_seconds: 60,
             log_file: PathBuf::from("agent.log"),
+            alert_webhook: None,
+            alert_after_minutes: 3,
             games: vec![GameRule {
                 name: "League of Legends".to_string(),
                 priority: 0,
@@ -272,5 +298,46 @@ mod tests {
             Config::resolve(base, rel),
             PathBuf::from("/opt/agent/logs/agent.log")
         );
+    }
+
+    // --- alert_webhook ---
+
+    #[test]
+    fn parse_when_alert_webhook_is_missing_alerts_are_off_with_default_delay() {
+        let cfg: Config = toml::from_str(
+            "endpoint = \"http://localhost:8787/game\"
+token = \"t\"
+
+[[games]]
+name = \"X\"
+processes = [\"x.exe\"]
+",
+        )
+        .unwrap();
+        assert_eq!(cfg.alert_webhook, None);
+        assert_eq!(cfg.alert_after_minutes, 3);
+    }
+
+    #[test]
+    fn validate_when_alert_webhook_is_a_discord_webhook_returns_ok() {
+        let mut cfg = valid();
+        cfg.alert_webhook = Some("https://discord.com/api/webhooks/123/abc".to_string());
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_when_alert_webhook_is_not_a_discord_webhook_returns_err() {
+        let mut cfg = valid();
+        cfg.alert_webhook = Some("https://example.com/hook".to_string());
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("alert_webhook"), "{err}");
+    }
+
+    #[test]
+    fn validate_when_alert_after_minutes_is_zero_returns_err() {
+        let mut cfg = valid();
+        cfg.alert_webhook = Some("https://discord.com/api/webhooks/123/abc".to_string());
+        cfg.alert_after_minutes = 0;
+        assert!(cfg.validate().is_err());
     }
 }
